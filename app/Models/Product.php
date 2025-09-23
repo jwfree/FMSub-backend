@@ -14,7 +14,7 @@ class Product extends Model
         'name',
         'description',
         'unit',
-        'active',
+        'active', // make sure this matches your column name
     ];
 
     public function vendor()

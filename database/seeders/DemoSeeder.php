@@ -47,7 +47,7 @@ class DemoSeeder extends Seeder
             [
                 'description' => 'A dozen local free-range eggs.',
                 'unit' => 'dozen',
-                'is_active' => true,
+                'active' => true,
             ]
         );
 

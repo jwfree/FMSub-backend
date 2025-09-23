@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
 
 class Vendor extends Model
 {
@@ -14,28 +13,26 @@ class Vendor extends Model
         'name',
         'contact_email',
         'contact_phone',
-        'active',
         'banner_path',
         'photo_path',
+        'active',
     ];
 
-    protected $appends = [
-        'banner_url',
-        'photo_url',
-    ];
-
-    public function getBannerUrlAttribute(): ?string
+    /** Users attached to this vendor (via vendor_users pivot) */
+    public function users()
     {
-        return $this->banner_path ? Storage::disk('public')->url($this->banner_path) : null;
+        return $this->belongsToMany(User::class, 'vendor_users')->withPivot('role');
     }
 
-    public function getPhotoUrlAttribute(): ?string
+    /** Products sold by this vendor */
+    public function products()
     {
-        return $this->photo_path ? Storage::disk('public')->url($this->photo_path) : null;
+        return $this->hasMany(Product::class);
     }
 
-    // relations you already have…
-    // public function products(){ ... }
-    // public function locations(){ ... }
-    // public function users(){ ... }
+    /** Pickup locations for this vendor */
+    public function locations()
+    {
+        return $this->hasMany(Location::class);
+    }
 }
