@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 
 export type ProductVariant = {
   id: number;
@@ -33,9 +34,10 @@ export default function ProductCard({ product, onClick }: Props) {
     : undefined;
 
   return (
-    <button
+    <Link
+      to={`/products/${product.id}`}
       onClick={() => onClick?.(product)}
-      className="w-full text-left rounded-2xl shadow p-4 bg-white hover:shadow-md transition"
+      className="block w-full rounded-2xl shadow p-4 bg-white hover:shadow-md transition text-left"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -54,6 +56,6 @@ export default function ProductCard({ product, onClick }: Props) {
       {product.description && (
         <p className="text-sm text-gray-700 mt-2 line-clamp-2">{product.description}</p>
       )}
-    </button>
+    </Link>
   );
 }

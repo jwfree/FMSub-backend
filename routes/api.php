@@ -56,3 +56,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/subscriptions/{subscription}/resume', [SubscriptionsController::class, 'resume']);
     Route::post('/subscriptions/{subscription}/cancel', [SubscriptionsController::class, 'cancel']);
 });
+use App\Http\Controllers\ProductsController;
+use App\Http\Controllers\SubscriptionsController;
+
+Route::get('products/{product}', [ProductsController::class, 'show']);   // product detail
+Route::post('subscriptions', [SubscriptionsController::class, 'store']); // create subscription
+
+import ProductDetail from "./pages/ProductDetail";
+
+// …
+<Routes>
+  <Route path="/" element={<Browse />} />
+  <Route path="/browse" element={<Browse />} />
+  <Route path="/products/:id" element={<ProductDetail />} />
+  {/* login, etc. */}
+</Routes>

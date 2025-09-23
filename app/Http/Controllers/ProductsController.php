@@ -34,4 +34,21 @@ class ProductsController extends Controller
 
         return response()->json($query->paginate($perPage));
     }
+    public function show(\App\Models\Product $product)
+    {
+        // Only allow active product + vendor
+        if (!$product->is_active || !$product->vendor?->active) {
+            return response()->json(['message' => 'Product not available'], 404);
+        }
+
+        $product->load([
+            'vendor:id,name',
+            'variants' => function ($q) {
+                $q->where('is_active', true)
+                ->select('id','product_id','name','sku','price','is_active');
+            },
+        ]);
+
+        return response()->json($product);
+    }
 }
