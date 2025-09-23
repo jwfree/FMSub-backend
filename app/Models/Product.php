@@ -9,6 +9,31 @@ class Product extends Model
 {
     use HasFactory;
 
-    // Allow mass assignment on these fields
-    protected $fillable = ['name', 'unit', 'price', 'active'];
+    protected $fillable = [
+        'vendor_id',
+        'name',
+        'description',
+        'unit',        // e.g. "dozen", "lb", "bag"
+        'is_active',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+    ];
+
+    // Relationships
+    public function vendor()
+    {
+        return $this->belongsTo(Vendor::class);
+    }
+
+    public function variants()
+    {
+        return $this->hasMany(ProductVariant::class);
+    }
+
+    public function subscriptions()
+    {
+        return $this->hasMany(Subscription::class);
+    }
 }

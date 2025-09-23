@@ -1,22 +1,128 @@
 import { useEffect, useState } from "react";
+import { BrowserRouter, Routes, Route, Link, Navigate, useNavigate } from "react-router-dom";
 import api from "./lib/api";
+import Browse from "./pages/Browse";
 
-type Product = { id: number; name: string; unit: string; price: string | number; active: boolean };
+type Me = { id: number; name: string; email: string };
 
-function LoginView({ onLoggedIn }: { onLoggedIn: () => void }) {
-  const [email, setEmail] = useState("demo@example.com");
+function useAuth() {
+  const [me, setMe] = useState<Me | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Read token from localStorage and set axios header on mount
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (token) {
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
+      api
+        .get("/me")
+        .then((res) => setMe(res.data))
+        .catch(() => {
+          // Token invalid → clear
+          localStorage.removeItem("token");
+          delete api.defaults.headers.common.Authorization;
+          setMe(null);
+        })
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    const res = await api.post("/auth/login", { email, password });
+    const token = res.data.token as string;
+    localStorage.setItem("token", token);
+    api.defaults.headers.common.Authorization = `Bearer ${token}`;
+    const meRes = await api.get("/me");
+    setMe(meRes.data);
+    return meRes.data as Me;
+  };
+
+  const logout = async () => {
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      // ignore errors on logout
+    } finally {
+      localStorage.removeItem("token");
+      delete api.defaults.headers.common.Authorization;
+      setMe(null);
+    }
+  };
+
+  return { me, loading, login, logout };
+}
+
+function Header({ me, onLogout }: { me: Me | null; onLogout: () => void }) {
+  return (
+    <header className="sticky top-0 z-10 bg-white border-b">
+      <div className="mx-auto max-w-3xl px-4 py-3 flex items-center justify-between">
+        <Link to="/browse" className="font-semibold tracking-tight">
+          FMSub
+        </Link>
+        <nav className="flex items-center gap-4 text-sm">
+          <Link className="underline" to="/browse">
+            Browse
+          </Link>
+          {me ? (
+            <div className="flex items-center gap-3">
+              <span className="text-gray-600 hidden sm:inline">{me.email}</span>
+              <button
+                onClick={onLogout}
+                className="rounded px-3 py-1 border text-xs hover:bg-gray-50"
+              >
+                Logout
+              </button>
+            </div>
+          ) : (
+            <Link to="/login" className="rounded px-3 py-1 border text-xs hover:bg-gray-50">
+              Login
+            </Link>
+          )}
+        </nav>
+      </div>
+    </header>
+  );
+}
+
+function Shell({
+  me,
+  onLogout,
+  children,
+}: {
+  me: Me | null;
+  onLogout: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Header me={me} onLogout={onLogout} />
+      <main className="pb-16">{children}</main>
+    </div>
+  );
+}
+
+function LoginView({ onLoggedIn }: { onLoggedIn: (me: Me) => void }) {
+  const [email, setEmail] = useState("admin@example.com");
   const [password, setPassword] = useState("secret123");
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErr("");
+    setErr(null);
     setLoading(true);
     try {
-      const { data } = await api.post("/auth/login", { email, password });
-      localStorage.setItem("token", data.token);
-      onLoggedIn();
+      // Will set token + me via onLoggedIn callback from parent
+      const res = await api.post("/auth/login", { email, password });
+      const token = res.data.token as string;
+      localStorage.setItem("token", token);
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
+      const meRes = await api.get("/me");
+      onLoggedIn(meRes.data);
+      navigate("/browse", { replace: true });
     } catch (e: any) {
       setErr(e?.response?.data?.message || "Login failed");
     } finally {
@@ -25,125 +131,68 @@ function LoginView({ onLoggedIn }: { onLoggedIn: () => void }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="w-full max-w-sm p-6">
-        <h1 className="text-2xl font-semibold text-center mb-6">Sign in</h1>
-        {err && <div className="mb-3 text-sm text-red-600">{err}</div>}
-        <form onSubmit={submit} className="space-y-3">
+    <div className="mx-auto max-w-md p-6">
+      <h1 className="text-lg font-semibold mb-3">Log in</h1>
+      <form onSubmit={submit} className="space-y-3">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Email</label>
           <input
-            className="w-full rounded-xl border border-gray-300 p-3 text-base focus:outline-none focus:ring-2 focus:ring-sky-400"
-            placeholder="Email"
-            inputMode="email"
-            autoComplete="email"
+            type="email"
+            className="w-full rounded border px-3 py-2 text-sm"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username"
+            required
           />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Password</label>
           <input
-            className="w-full rounded-xl border border-gray-300 p-3 text-base focus:outline-none focus:ring-2 focus:ring-sky-400"
-            placeholder="Password"
             type="password"
-            autoComplete="current-password"
+            className="w-full rounded border px-3 py-2 text-sm"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
           />
-          <button
-            disabled={loading}
-            className="w-full rounded-xl bg-sky-600 text-white p-3 text-base font-medium active:scale-[0.99] disabled:opacity-60"
-          >
-            {loading ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function ProductsView({ onLogout }: { onLogout: () => void }) {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [status, setStatus] = useState<string>("");
-
-  const load = async () => {
-    setStatus("Loading…");
-    try {
-      const { data } = await api.get<Product[]>("/products");
-      setProducts(data);
-      setStatus(`Loaded ${data.length} item${data.length === 1 ? "" : "s"}`);
-    } catch {
-      setStatus("Failed to load items");
-    }
-  };
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  return (
-    <div className="min-h-screen bg-white">
-      <header className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-gray-200">
-        <div className="max-w-screen-sm mx-auto px-4 py-3 flex items-center justify-between">
-          <h1 className="text-lg font-semibold">Products</h1>
-          <button
-            onClick={onLogout}
-            className="rounded-lg border px-3 py-1 text-sm active:scale-[0.98]"
-          >
-            Logout
-          </button>
         </div>
-      </header>
-
-      <main className="max-w-screen-sm mx-auto px-4 py-4">
-        {status && <p className="text-sm text-gray-600 mb-2">{status}</p>}
-
-        <ul className="space-y-3">
-          {products.map((p) => (
-            <li
-              key={p.id}
-              className="rounded-2xl border border-gray-200 p-4 shadow-sm flex items-center justify-between"
-            >
-              <div>
-                <div className="font-medium">{p.name}</div>
-                <div className="text-sm text-gray-500">{p.unit}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-base font-semibold">
-                  ${Number(p.price).toFixed(2)}
-                </div>
-                <button className="mt-2 rounded-xl bg-sky-600 text-white px-3 py-1.5 text-sm active:scale-[0.98]">
-                  Reserve
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-
-        <div className="mt-6 text-center">
-          <button
-            onClick={load}
-            className="rounded-xl border px-4 py-2 text-sm active:scale-[0.98]"
-          >
-            Refresh
-          </button>
-        </div>
-      </main>
+        {err && <p className="text-xs text-red-600">{err}</p>}
+        <button
+          type="submit"
+          className="w-full rounded bg-black text-white py-2 text-sm disabled:opacity-60"
+          disabled={loading}
+        >
+          {loading ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
+      <p className="text-xs text-gray-500 mt-3">
+        Tip: use <code>admin@example.com</code> / <code>secret123</code> (from seeding).
+      </p>
     </div>
   );
 }
 
 export default function App() {
-  const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
+  const { me, loading, logout } = useAuth();
 
-  const handleLoggedIn = () => setToken(localStorage.getItem("token"));
-  const handleLogout = async () => {
-    try {
-      await api.post("/auth/logout");
-    } catch {}
-    localStorage.removeItem("token");
-    setToken(null);
-  };
+  if (loading) {
+    return (
+      <div className="min-h-screen grid place-items-center text-sm text-gray-600">
+        Loading…
+      </div>
+    );
+  }
 
-  return token ? (
-    <ProductsView onLogout={handleLogout} />
-  ) : (
-    <LoginView onLoggedIn={handleLoggedIn} />
+  return (
+    <BrowserRouter>
+      <Shell me={me} onLogout={logout}>
+        <Routes>
+          <Route path="/" element={<Navigate to="/browse" replace />} />
+          <Route path="/browse" element={<Browse />} />
+          <Route path="/login" element={<LoginView onLoggedIn={() => { /* state set in useAuth after /me */ }} />} />
+          <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
+        </Routes>
+      </Shell>
+    </BrowserRouter>
   );
 }

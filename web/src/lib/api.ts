@@ -1,13 +1,15 @@
+// src/lib/api.ts
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL, // e.g. http://127.0.0.1:8000/api
+  baseURL: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api",
+  withCredentials: false, // we're using Bearer tokens, not cookies
 });
 
-// Attach token on every request if present
+// attach Authorization header if token exists
 api.interceptors.request.use((config) => {
-  const t = localStorage.getItem("token");
-  if (t) config.headers.Authorization = `Bearer ${t}`;
+  const token = localStorage.getItem("token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
