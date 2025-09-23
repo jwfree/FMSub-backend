@@ -3,17 +3,24 @@ import api from "../lib/api";
 
 type Subscription = {
   id: number;
-  status: "active" | "paused" | "canceled";
+  status: "active" | "paused" | "canceled" | "expired";
   start_date: string;
-  frequency: "weekly" | "biweekly" | "monthly";
-  notes?: string | null;
-  product?: { id: number; name: string };
-  product_variant?: { id: number; name?: string | null; sku?: string | null; price_cents?: number | null };
-  vendor?: { id: number; name: string };
+  frequency: string;
+  notes?: string;
+  product?: {
+    id: number;
+    name: string;
+    vendor?: { id: number; name: string };
+  };
+  product_variant?: {
+    id: number;
+    name: string;
+    price_cents: number;
+  };
 };
 
-function centsToDollars(c?: number | null) {
-  if (c == null) return "";
+function centsToDollars(c?: number) {
+  if (typeof c !== "number") return "";
   return `$${(c / 100).toFixed(2)}`;
 }
 
@@ -21,98 +28,123 @@ export default function MySubscriptions() {
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
 
-  const load = () => {
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    setErr(null);
-    api.get<Subscription[]>("/subscriptions/mine")
-      .then(r => setSubs(r.data ?? []))
-      .catch(e => setErr(e?.response?.data?.message || e.message))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { load(); }, []);
-
-  async function action(id: number, op: "pause" | "resume" | "cancel") {
-    setBusyId(id);
-    try {
-      await api.post(`/subscriptions/${id}/${op}`);
-      load();
-    } catch (e:any) {
-      alert(e?.response?.data?.message || `Failed to ${op}`);
-    } finally {
-      setBusyId(null);
-    }
-  }
+    api
+      .get<Subscription[]>("/subscriptions/mine")
+      .then((r) => !cancelled && setSubs(r.data))
+      .catch((e) => !cancelled && setErr(e?.response?.data?.message || e.message))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (loading) return <div className="p-4">Loading…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
+  if (!subs.length) return <div className="p-4 text-gray-600">No subscriptions yet.</div>;
 
-  if (!subs.length) {
-    return <div className="p-4 text-sm text-gray-600">No subscriptions yet.</div>;
+  const activeSubs = subs.filter((s) => s.status === "active" || s.status === "paused");
+  const inactiveSubs = subs.filter((s) => s.status === "canceled" || s.status === "expired");
+
+  return (
+    <div className="mx-auto max-w-2xl p-4 space-y-8">
+      {activeSubs.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Active</h2>
+          <div className="space-y-3">
+            {activeSubs.map((s) => (
+              <SubscriptionCard key={s.id} sub={s} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {inactiveSubs.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">Inactive</h2>
+          <div className="space-y-3">
+            {inactiveSubs.map((s) => (
+              <SubscriptionCard key={s.id} sub={s} inactive />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function SubscriptionCard({ sub, inactive }: { sub: Subscription; inactive?: boolean }) {
+  const [working, setWorking] = useState(false);
+
+  async function action(endpoint: string) {
+    setWorking(true);
+    try {
+      const r = await api.post(`/subscriptions/${sub.id}/${endpoint}`);
+      console.log("Updated:", r.data);
+      window.location.reload(); // quick reload; later replace with state update
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setWorking(false);
+    }
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-4 space-y-3">
-      {subs.map(s => (
-        <div key={s.id} className="rounded-2xl border bg-white p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold">
-                {s.product?.name || "Product"}{s.vendor?.name ? ` — ${s.vendor.name}` : ""}
-              </div>
-              <div className="text-xs text-gray-600 mt-0.5">
-                {s.product_variant?.name || s.product_variant?.sku || "Variant"} ·{" "}
-                {centsToDollars(s.product_variant?.price_cents)}
-              </div>
-              <div className="text-xs text-gray-600 mt-0.5">
-                {s.frequency} · starts {s.start_date}
-              </div>
-              <div className="text-xs mt-0.5">
-                Status:{" "}
-                <span className={
-                  s.status === "active" ? "text-green-700"
-                  : s.status === "paused" ? "text-amber-700"
-                  : "text-gray-700"
-                }>
-                  {s.status}
-                </span>
-              </div>
-              {s.notes ? <div className="text-xs text-gray-600 mt-1">Notes: {s.notes}</div> : null}
+    <div className="rounded-xl border bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">{sub.product?.name}</h3>
+          {sub.product?.vendor && (
+            <div className="text-xs text-gray-600">{sub.product.vendor.name}</div>
+          )}
+          {sub.product_variant && (
+            <div className="text-xs text-gray-600 mt-0.5">
+              {sub.product_variant.name} — {centsToDollars(sub.product_variant.price_cents)}
             </div>
-            <div className="flex flex-col gap-2 shrink-0">
-              {s.status === "active" && (
-                <button
-                  className="rounded border px-3 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
-                  onClick={() => action(s.id, "pause")}
-                  disabled={busyId === s.id}
-                >
-                  {busyId === s.id ? "…" : "Pause"}
-                </button>
-              )}
-              {s.status === "paused" && (
-                <button
-                  className="rounded border px-3 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
-                  onClick={() => action(s.id, "resume")}
-                  disabled={busyId === s.id}
-                >
-                  {busyId === s.id ? "…" : "Resume"}
-                </button>
-              )}
-              {s.status !== "canceled" && (
-                <button
-                  className="rounded border px-3 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
-                  onClick={() => action(s.id, "cancel")}
-                  disabled={busyId === s.id}
-                >
-                  {busyId === s.id ? "…" : "Cancel"}
-                </button>
-              )}
-            </div>
+          )}
+          <div className="text-xs text-gray-500 mt-1">
+            Every {sub.frequency}, starting {sub.start_date}
           </div>
+          {sub.notes && <div className="text-xs text-gray-500 mt-1">{sub.notes}</div>}
         </div>
-      ))}
+
+        {inactive ? (
+          <span className="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600">
+            {sub.status.charAt(0).toUpperCase() + sub.status.slice(1)}
+          </span>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {sub.status === "active" && (
+              <button
+                disabled={working}
+                onClick={() => action("pause")}
+                className="text-xs px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-50"
+              >
+                Pause
+              </button>
+            )}
+            {sub.status === "paused" && (
+              <button
+                disabled={working}
+                onClick={() => action("resume")}
+                className="text-xs px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-50"
+              >
+                Resume
+              </button>
+            )}
+            <button
+              disabled={working}
+              onClick={() => action("cancel")}
+              className="text-xs px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

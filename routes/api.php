@@ -7,6 +7,7 @@ use App\Http\Controllers\VendorController;
 use App\Http\Controllers\ProductsController;
 use App\Http\Controllers\LocationsController;
 use App\Http\Controllers\SubscriptionsController;
+use App\Http\Controllers\AccountController;
 
 /*
 |--------------------------------------------------------------------------
@@ -25,6 +26,10 @@ Route::post('/auth/login',          [AuthController::class, 'login']);
 Route::post('/auth/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 Route::get('/me',           [AuthController::class, 'me'])->middleware('auth:sanctum');
 Route::post('/auth/signup', [\App\Http\Controllers\AuthController::class, 'signup']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/account', [AccountController::class, 'show']);
+    Route::patch('/account', [AccountController::class, 'update']);
+});
 
 // Public catalog endpoints
 Route::get('/vendors',                       [VendorController::class,   'index']);

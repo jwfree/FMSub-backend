@@ -6,6 +6,7 @@ import ProductDetail from "./pages/ProductDetail";
 import VendorDetail from "./pages/VendorDetail";
 import MySubscriptions from "./pages/MySubscriptions";
 import Account from "./pages/Account";
+import { useNavigate } from "react-router-dom";
 
 type Me = { id: number; name: string; email: string };
 
@@ -54,37 +55,31 @@ function useAuth() {
   return { me, loading, login, logout, setMe };
 }
 
-function Header({ me, onLogout }: { me: Me | null; onLogout: () => void }) {
+// Header component
+function Header({ me, onLogout }: { me: Me | null; onLogout: () => Promise<void> }) {
+  const navigate = useNavigate();
+
+  async function handleLogout() {
+    await onLogout();
+    navigate("/browse", { replace: true });   // <— route after logout
+  }
+
   return (
     <header className="sticky top-0 z-10 bg-white border-b">
       <div className="mx-auto max-w-3xl px-4 py-3 flex items-center justify-between">
-        <Link to="/browse" className="font-semibold tracking-tight">
-          FMSub
-        </Link>
+        <Link to="/browse" className="font-semibold tracking-tight">FMSub</Link>
         <nav className="flex items-center gap-4 text-sm">
-          {me && (
-          <Link className="underline" to="/subscriptions">
-            My Subs
-          </Link>
-          )}        
- 
-          <Link className="underline" to="/browse">
-            Browse
-          </Link>
+          <Link className="underline" to="/browse">Browse</Link>
           {me ? (
             <div className="flex items-center gap-3">
-              <span className="text-gray-600 hidden sm:inline">{me.email}</span>
-              <button
-                onClick={onLogout}
-                className="rounded px-3 py-1 border text-xs hover:bg-gray-50"
-              >
+              <Link className="underline" to="/subs">My Subs</Link>
+              <Link className="underline hidden sm:inline" to="/account">Account</Link>
+              <button onClick={handleLogout} className="rounded px-3 py-1 border text-xs hover:bg-gray-50">
                 Logout
               </button>
             </div>
           ) : (
-            <Link to="/account" className="rounded px-3 py-1 border text-xs hover:bg-gray-50">
-              Login
-            </Link>
+            <Link to="/login" className="rounded px-3 py-1 border text-xs hover:bg-gray-50">Login</Link>
           )}
         </nav>
       </div>
@@ -197,7 +192,7 @@ export default function App() {
         <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
         <Route path="/products/:id" element={<ProductDetail />} />
         <Route path="/vendors/:id" element={<VendorDetail />} />        
-        <Route path="/subscriptions" element={<MySubscriptions />} />  
+        <Route path="/subs" element={<MySubscriptions />} />  
         <Route path="/account" element={<Account />} />      
       </Routes>
     </Shell>
