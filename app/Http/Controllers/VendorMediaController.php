@@ -17,7 +17,7 @@ class VendorMediaController extends Controller
      */
     public function upload(Vendor $vendor, Request $request)
     {
-        Gate::authorize('update-vendor', $vendor);
+        $this->authorize('update', $vendor);
 
         $data = $request->validate([
             'name'          => ['nullable','string','max:255'],
@@ -78,29 +78,25 @@ class VendorMediaController extends Controller
      */
 // app/Http/Controllers/VendorMediaController.php
 
-    public function flyer(Vendor $vendor)
-    {
-        $appBase = config('app.frontend_url', env('APP_FRONTEND_URL', 'https://fmsubapp.fbwks.com'));
-        $landing = rtrim($appBase, '/') . "/vendors/{$vendor->id}";
+ public function flyer(Vendor $vendor)
+{
+    $appBase = config('app.frontend_url', env('APP_FRONTEND_URL', 'https://fmsubapp.fbwks.com'));
+    $qrUrl   = route('vendors.qr', ['vendor' => $vendor->id]);
 
-        // Build product list (active)
-        $products = $vendor->products()
-            ->where('active', true)
-            ->with(['variants' => fn($q) => $q->where('active', true)])
-            ->orderBy('name')
-            ->get();
+    $products = $vendor->products()
+        ->where('active', true)
+        ->with(['variants' => fn($q) => $q->where('active', true)])
+        ->orderBy('name')
+        ->get();
 
-        // Generate QR PNG bytes and embed as data URI
-        $pngBytes = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')
-            ->size(480)->margin(1)->generate($landing);
+    $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('flyers.vendor', [
+        'vendor'    => $vendor,
+        'products'  => $products,
+        'qrPngUrl'  => $qrUrl, // <- EXACTLY this key
+        'landing'   => rtrim($appBase, '/') . "/vendors/{$vendor->id}",
+    ])->setPaper('letter', 'portrait');
 
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('flyers.vendor', [
-            'vendor'    => $vendor,
-            'products'  => $products,
-            'landing'   => $landing,
-            'qrDataUri' => 'data:image/png;base64,' . base64_encode($pngBytes),
-        ])->setPaper('letter', 'portrait');
+    return $pdf->download("Vendor_{$vendor->id}_flyer.pdf");
+}
 
-        return $pdf->download("Vendor_{$vendor->id}_flyer.pdf");
-    }
 }

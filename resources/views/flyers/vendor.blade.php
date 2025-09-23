@@ -1,116 +1,64 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
   <meta charset="utf-8">
-  <title>{{ $vendor->name }} — Subscription Flyer</title>
+  <title>{{ $vendor->name }} — FMSub Flyer</title>
   <style>
-    @page { margin: 36pt; }
-    body { font-family: DejaVu Sans, Helvetica, Arial, sans-serif; color:#111; font-size:12pt; }
-    .header { display:flex; gap:16pt; align-items:center; margin-bottom:16pt; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 24px; }
+    .header { display:flex; gap:16px; align-items:center; }
     .brand { flex:1; }
-    .vendor-name { font-size:20pt; font-weight:700; margin:0; }
-    .contact { margin:4pt 0 0; font-size:10pt; color:#444; }
-    .banner { width:100%; height:140pt; object-fit:cover; border:1pt solid #ddd; border-radius:6pt; margin-bottom:10pt; }
-    .photo { width:80pt; height:80pt; object-fit:cover; border-radius:6pt; border:1pt solid #ddd; }
-    .section-title { font-size:14pt; font-weight:700; margin:14pt 0 8pt; }
-    .products { width:100%; border-collapse:collapse; }
-    .products th, .products td { border:1pt solid #ddd; padding:6pt; vertical-align:top; }
-    .products th { background:#f5f5f5; text-align:left; }
-    .muted { color:#666; font-size:9.5pt; }
-    .qrbox { text-align:center; border:1pt dashed #aaa; padding:8pt; border-radius:6pt; }
-    .foot { margin-top:12pt; font-size:9.5pt; color:#555; }
-    .pill { display:inline-block; padding:2pt 6pt; border:1pt solid #ddd; border-radius:999pt; font-size:9.5pt; }
+    .banner { width:100%; height:140px; object-fit:cover; border:1px solid #ddd; border-radius:8px; }
+    .photo  { width:120px; height:120px; object-fit:cover; border-radius:8px; border:1px solid #ddd; }
+    .grid  { margin-top:16px; display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    .card  { border:1px solid #ddd; border-radius:8px; padding:12px; }
+    .muted { color:#666; font-size:12px; }
+    .section-title { font-weight:600; margin:20px 0 8px; }
+    .qr { text-align:center; margin-top:8px; }
+    .qr img { width:160px; height:160px; }
   </style>
 </head>
 <body>
-
-  {{-- Optional banner --}}
   @if($vendor->banner_path)
-    <img class="banner" src="{{ public_path('storage/'. $vendor->banner_path) }}" alt="Banner">
+    <img class="banner" src="{{ public_path('storage/'.$vendor->banner_path) }}" alt="Banner">
   @endif
 
-  <div class="header">
+  <div class="header" style="margin-top:12px;">
     @if($vendor->photo_path)
-      <img class="photo" src="{{ public_path('storage/'. $vendor->photo_path) }}" alt="Vendor Photo">
+      <img class="photo" src="{{ public_path('storage/'.$vendor->photo_path) }}" alt="Vendor">
     @endif
     <div class="brand">
-      <h1 class="vendor-name">{{ $vendor->name }}</h1>
-      <div class="contact">
-        @if(!empty($vendor->contact_phone))
-          <span>📞 {{ $vendor->contact_phone }}</span>
-        @endif
-        @if(!empty($vendor->contact_email))
-          <span style="margin-left:8pt;">✉️ {{ $vendor->contact_email }}</span>
-        @endif
+      <h1 style="margin:0">{{ $vendor->name }}</h1>
+      <div class="muted">
+        @if($vendor->contact_email) {{ $vendor->contact_email }}<br>@endif
+        @if($vendor->contact_phone) {{ $vendor->contact_phone }}@endif
       </div>
-      <p class="muted" style="margin-top:8pt;">
-        Never miss out again — subscribe to reserve your favorites in advance.
-      </p>
+      <div class="section-title">Never miss out again!</div>
+      <div class="muted">Subscribe to reserve your favorites.</div>
     </div>
-
-    {{-- QR to vendor landing --}}
-    <div class="qrbox" style="width:140pt;">
-      <div style="font-weight:700; margin-bottom:6pt;">Scan to subscribe</div>
-      {{-- We render the QR via a URL (controller builds it) --}}
-      <img src="{{ $qrDataUri }}" alt="QR code" style="width:180px;height:180px;" />
-      <div class="muted" style="margin-top:6pt; word-break:break-all;">{{ $landing }}</div>
+    <div class="qr">
+      {{-- This is the variable your controller must pass --}}
+      <img src="{{ $qrPngUrl }}" alt="QR to vendor page">
+      <div class="muted" style="margin-top:6px;">Scan to see products</div>
+      <div style="font-size:11px">{{ $landing }}</div>
     </div>
   </div>
 
-  <div class="section-title">Available Products</div>
-
-  <table class="products">
-    <thead>
-      <tr>
-        <th style="width:35%;">Product</th>
-        <th>Description</th>
-        <th style="width:25%;">Options</th>
-      </tr>
-    </thead>
-    <tbody>
-      @forelse($products as $p)
-        <tr>
-          <td>
-            <div style="font-weight:700;">{{ $p->name }}</div>
-            @if(method_exists($p, 'unit') && $p->unit)
-              <div class="pill">{{ $p->unit }}</div>
-            @endif
-          </td>
-          <td>
-            @if(!empty($p->description))
-              {{ $p->description }}
-            @else
-              <span class="muted">No description provided.</span>
-            @endif
-          </td>
-          <td>
-            @if($p->variants && count($p->variants))
-              <ul style="margin:0; padding-left:14pt;">
-                @foreach($p->variants as $v)
-                  <li>
-                    {{ $v->name }}
-                    @if(isset($v->price_cents))
-                      — ${{ number_format($v->price_cents/100, 2) }}
-                    @endif
-                  </li>
-                @endforeach
-              </ul>
-            @else
-              <span class="muted">No options</span>
-            @endif
-          </td>
-        </tr>
-      @empty
-        <tr>
-          <td colspan="3" class="muted">No active products.</td>
-        </tr>
-      @endforelse
-    </tbody>
-  </table>
-
-  <p class="foot">
-    Tip: Scan the QR to subscribe now. You’ll get reminders before pickup day.
-  </p>
-
+  <div class="section-title">Products</div>
+  <div class="grid">
+    @foreach($products as $p)
+      <div class="card">
+        <div style="font-weight:600">{{ $p->name }}</div>
+        @if($p->description)
+          <div class="muted" style="margin-top:4px">{{ $p->description }}</div>
+        @endif
+        @php
+          $min = optional($p->variants)->min('price_cents');
+        @endphp
+        @if($min)
+          <div style="margin-top:6px;">From ${{ number_format($min/100, 2) }}</div>
+        @endif
+      </div>
+    @endforeach
+  </div>
 </body>
 </html>

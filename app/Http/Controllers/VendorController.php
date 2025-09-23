@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Vendor;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class VendorController extends Controller
 {
@@ -33,7 +34,7 @@ class VendorController extends Controller
                               $v->where('active', true);
                           }]);
                     },
-                    'locations'
+                    'locations',
                 ])
                 ->orderBy('name')
                 ->paginate($perPage);
@@ -47,7 +48,7 @@ class VendorController extends Controller
      */
     public function show(Vendor $vendor, Request $request)
     {
-        if (!$vendor->active) {
+        if (! $vendor->active) {
             return response()->json(['message' => 'Vendor not active'], 404);
         }
 
@@ -59,10 +60,15 @@ class VendorController extends Controller
                           $v->where('active', true);
                       }]);
                 },
-                'locations'
+                'locations',
             ]);
         }
 
-        return response()->json($vendor);
+        // ⬇️ Add this block
+        $canEdit = Auth::check() && $request->user()->can('update', $vendor);
+
+        return response()->json(array_merge($vendor->toArray(), [
+            'can_edit' => $canEdit,
+        ]));
     }
 }

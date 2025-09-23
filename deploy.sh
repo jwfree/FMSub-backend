@@ -32,29 +32,25 @@ echo "==> Overlaying static public/ (favicons, robots.txt, optional .htaccess)"
 # This does NOT use --delete, so it won't remove pre-existing files
 rsync -az web/public/ "$HOST_ALIAS:$REMOTE_FRONTEND_DIR/"
 
-echo "==> Ensuring SPA .htaccess exists on remote (safety net)"
+echo "==> Ensuring SPA .htaccess exists on remote"
 ssh -T "$HOST_ALIAS" bash <<'EOF_HTACCESS'
 set -euo pipefail
 FRONT_DIR="/home4/fbwkscom/public_html/fmsubapp"
 mkdir -p "$FRONT_DIR"
-# Only create if missing; won't overwrite if you ship one from web/public/.htaccess
-if [ ! -f "$FRONT_DIR/.htaccess" ]; then
-  cat > "$FRONT_DIR/.htaccess" <<'HTA'
-# SPA router: send unknown paths to index.html (but keep existing assets/API)
+cat > "$FRONT_DIR/.htaccess" <<'HTA'
+# React/Vite SPA router for subdomain docroot
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteBase /fmsubapp/
-  # Don’t rewrite existing files or directories
+
+  # Serve existing files or directories as-is
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
 
-  # Keep API requests intact
-  RewriteCond %{REQUEST_URI} !^/api/
-  RewriteRule . /fmsubapp/index.html [L]
+  # Everything else → index.html
+  RewriteRule ^ index.html [L]
 </IfModule>
 HTA
-fi
 EOF_HTACCESS
 
 echo "==> Syncing backend source to $HOST_ALIAS:$REMOTE_APP_DIR"
