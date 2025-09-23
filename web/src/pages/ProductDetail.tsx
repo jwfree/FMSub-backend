@@ -2,10 +2,20 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 
-type Variant = { id:number; name:string; sku:string; price:number; is_active:boolean };
+type Variant = {
+  id: number;
+  name: string;
+  sku?: string;
+  price_cents: number;
+  is_active: boolean;
+};
+
 type Product = {
-  id:number; name:string; description?:string; is_active:boolean;
-  vendor?: { id:number; name:string };
+  id: number;
+  name: string;
+  description?: string;
+  is_active: boolean;
+  vendor?: { id: number; name: string };
   variants: Variant[];
 };
 
@@ -19,8 +29,10 @@ export default function ProductDetail() {
 
   // form state expected by your SubscriptionsController@store
   const [variantId, setVariantId] = useState<number | "">("");
-  const [frequency, setFrequency] = useState<"weekly"|"biweekly"|"monthly">("weekly");
-  const [startDate, setStartDate] = useState<string>(() => new Date().toISOString().slice(0,10));
+  const [frequency, setFrequency] = useState<"weekly" | "biweekly" | "monthly">("weekly");
+  const [startDate, setStartDate] = useState<string>(
+    () => new Date().toISOString().slice(0, 10)
+  );
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -28,11 +40,14 @@ export default function ProductDetail() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api.get<Product>(`/products/${id}`)
-      .then(r => !cancelled && setProduct(r.data))
-      .catch(e => !cancelled && setErr(e?.response?.data?.message || e.message))
+    api
+      .get<Product>(`/products/${id}`)
+      .then((r) => !cancelled && setProduct(r.data))
+      .catch((e) => !cancelled && setErr(e?.response?.data?.message || e.message))
       .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   useEffect(() => {
@@ -54,7 +69,7 @@ export default function ProductDetail() {
       setToast("Subscription created!");
       setTimeout(() => setToast(null), 1500);
       // later: navigate('/subscriptions') once that page exists
-    } catch (e:any) {
+    } catch (e: any) {
       setToast(e?.response?.data?.message || "Failed to create subscription");
       setTimeout(() => setToast(null), 2000);
     } finally {
@@ -65,18 +80,24 @@ export default function ProductDetail() {
   if (loading) return <div className="p-4">Loading…</div>;
   if (err || !product) return <div className="p-4 text-red-600">{err ?? "Not found"}</div>;
 
-  const minPrice = Math.min(...(product.variants || []).map(v => v.price));
+  const minPrice = Math.min(...(product.variants || []).map((v) => v.price_cents));
 
   return (
     <div className="mx-auto max-w-2xl p-4">
-      <button onClick={() => navigate(-1)} className="text-sm text-blue-600">&larr; Back</button>
+      <button onClick={() => navigate(-1)} className="text-sm text-blue-600">
+        &larr; Back
+      </button>
 
       <h1 className="text-xl font-semibold mt-2">{product.name}</h1>
-      {product.vendor?.name && <div className="text-sm text-gray-600">{product.vendor.name}</div>}
-      {Number.isFinite(minPrice) && (
-        <div className="mt-1 text-sm font-semibold">${(minPrice/100).toFixed(2)}+</div>
+      {product.vendor?.name && (
+        <div className="text-sm text-gray-600">{product.vendor.name}</div>
       )}
-      {product.description && <p className="mt-3 text-gray-700">{product.description}</p>}
+      {Number.isFinite(minPrice) && (
+        <div className="mt-1 text-sm font-semibold">${(minPrice / 100).toFixed(2)}+</div>
+      )}
+      {product.description && (
+        <p className="mt-3 text-gray-700">{product.description}</p>
+      )}
 
       <div className="mt-6 space-y-3 rounded-xl border p-4">
         <div className="text-sm font-medium">Choose an option</div>
@@ -85,9 +106,9 @@ export default function ProductDetail() {
           onChange={(e) => setVariantId(Number(e.target.value))}
           className="w-full rounded-lg border p-2 text-sm"
         >
-          {product.variants.map(v => (
+          {product.variants.map((v) => (
             <option key={v.id} value={v.id}>
-              {v.name} — ${(v.price/100).toFixed(2)}
+              {v.name} — ${(v.price_cents / 100).toFixed(2)}
             </option>
           ))}
         </select>

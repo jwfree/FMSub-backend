@@ -26,26 +26,34 @@ class ProductsController extends Controller
             })
             ->when($vendorId, fn ($qb) => $qb->where('vendor_id', $vendorId))
             ->where('active', true)
+            ->whereHas('vendor', fn ($v) => $v->where('active', true))
             ->with([
-                'vendor',
-                'variants' => fn ($v) => $v->where('active', true),
+                'vendor:id,name',
+                'variants' => function ($v) {
+                    $v->where('active', true)
+                      ->select('id','product_id','name','sku','price_cents','active');
+                },
             ])
             ->orderBy('name');
 
         return response()->json($query->paginate($perPage));
     }
-    public function show(\App\Models\Product $product)
+
+    /**
+     * GET /api/products/{product}
+     */
+    public function show(Product $product)
     {
         // Only allow active product + vendor
-        if (!$product->is_active || !$product->vendor?->active) {
+        if (!$product->active || !$product->vendor?->active) {
             return response()->json(['message' => 'Product not available'], 404);
         }
 
         $product->load([
             'vendor:id,name',
             'variants' => function ($q) {
-                $q->where('is_active', true)
-                ->select('id','product_id','name','sku','price','is_active');
+                $q->where('active', true)
+                  ->select('id','product_id','name','sku','price_cents','active');
             },
         ]);
 

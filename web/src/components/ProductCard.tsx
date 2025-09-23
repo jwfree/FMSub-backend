@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 export type ProductVariant = {
   id: number;
   sku?: string;
-  price_cents?: number;
+  price_cents?: number; // ← keep cents here
   is_active?: boolean;
 };
 
@@ -18,7 +18,6 @@ export type Product = {
 
 type Props = {
   product: Product;
-  onClick?: (p: Product) => void;
 };
 
 function centsToDollars(c?: number) {
@@ -26,7 +25,7 @@ function centsToDollars(c?: number) {
   return `$${(c / 100).toFixed(2)}`;
 }
 
-export default function ProductCard({ product, onClick }: Props) {
+export default function ProductCard({ product }: Props) {
   const cheapest = product.variants?.length
     ? [...product.variants].sort(
         (a, b) => (a.price_cents ?? Infinity) - (b.price_cents ?? Infinity)
@@ -36,8 +35,7 @@ export default function ProductCard({ product, onClick }: Props) {
   return (
     <Link
       to={`/products/${product.id}`}
-      onClick={() => onClick?.(product)}
-      className="block w-full rounded-2xl shadow p-4 bg-white hover:shadow-md transition text-left"
+      className="block w-full text-left rounded-2xl shadow p-4 bg-white hover:shadow-md transition"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
