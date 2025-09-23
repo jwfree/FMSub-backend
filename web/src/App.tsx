@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Routes, Route, Link, Navigate, useNavigate } from "react-router-dom";
 import api from "./lib/api";
 import Browse from "./pages/Browse";
+import ProductDetail from "./pages/ProductDetail";
+import VendorDetail from "./pages/VendorDetail";
 
 type Me = { id: number; name: string; email: string };
 
@@ -186,6 +188,8 @@ export default function App() {
         <Route path="/browse" element={<Browse />} />
         <Route path="/login" element={<LoginView onLoggedIn={setMe} />} />
         <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
+        <Route path="/products/:id" element={<ProductDetail />} />
+        <Route path="/vendors/:id" element={<VendorDetail />} />        
       </Routes>
     </Shell>
   );
