@@ -20,9 +20,11 @@ use App\Http\Controllers\SubscriptionsController;
 Route::get('/ping', fn () => response()->json(['ok' => true, 'ts' => now()->toISOString()]));
 
 // Auth (Sanctum token-based)
-Route::post('/auth/login',  [AuthController::class, 'login']);
+Route::post('/auth/check-identity', [AuthController::class, 'checkIdentity']); 
+Route::post('/auth/login',          [AuthController::class, 'login']);        
 Route::post('/auth/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 Route::get('/me',           [AuthController::class, 'me'])->middleware('auth:sanctum');
+Route::post('/auth/signup', [\App\Http\Controllers\AuthController::class, 'signup']);
 
 // Public catalog endpoints
 Route::get('/vendors',                       [VendorController::class,   'index']);

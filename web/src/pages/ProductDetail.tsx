@@ -67,9 +67,14 @@ export default function ProductDetail() {
         notes: notes || undefined,
       });
       setToast("Subscription created!");
+      navigate("/subscriptions");
       setTimeout(() => setToast(null), 1500);
       // later: navigate('/subscriptions') once that page exists
     } catch (e: any) {
+        if (e?.response?.status === 401) {
+            window.location.href = `/account?next=/products/${id}`;
+            return;
+        }
       setToast(e?.response?.data?.message || "Failed to create subscription");
       setTimeout(() => setToast(null), 2000);
     } finally {

@@ -4,6 +4,8 @@ import api from "./lib/api";
 import Browse from "./pages/Browse";
 import ProductDetail from "./pages/ProductDetail";
 import VendorDetail from "./pages/VendorDetail";
+import MySubscriptions from "./pages/MySubscriptions";
+import Account from "./pages/Account";
 
 type Me = { id: number; name: string; email: string };
 
@@ -60,6 +62,12 @@ function Header({ me, onLogout }: { me: Me | null; onLogout: () => void }) {
           FMSub
         </Link>
         <nav className="flex items-center gap-4 text-sm">
+          {me && (
+          <Link className="underline" to="/subscriptions">
+            My Subs
+          </Link>
+          )}        
+ 
           <Link className="underline" to="/browse">
             Browse
           </Link>
@@ -74,7 +82,7 @@ function Header({ me, onLogout }: { me: Me | null; onLogout: () => void }) {
               </button>
             </div>
           ) : (
-            <Link to="/login" className="rounded px-3 py-1 border text-xs hover:bg-gray-50">
+            <Link to="/account" className="rounded px-3 py-1 border text-xs hover:bg-gray-50">
               Login
             </Link>
           )}
@@ -102,7 +110,7 @@ function Shell({
 }
 
 function LoginView({ onLoggedIn }: { onLoggedIn: (me: Me) => void }) {
-  const [email, setEmail] = useState("admin@example.com");
+  const [identity, setIdentity] = useState("admin@example.com"); // can be phone like "555-123-4567"
   const [password, setPassword] = useState("secret123");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -113,12 +121,12 @@ function LoginView({ onLoggedIn }: { onLoggedIn: (me: Me) => void }) {
     setErr(null);
     setLoading(true);
     try {
-      const res = await api.post("/auth/login", { email, password });
+      const res = await api.post("/auth/login", { identity, password });
       const token = res.data.token as string;
       localStorage.setItem("token", token);
       api.defaults.headers.common.Authorization = `Bearer ${token}`;
       const meRes = await api.get("/me");
-      onLoggedIn(meRes.data);               // <-- actually updates auth state now
+      onLoggedIn(meRes.data);
       navigate("/browse", { replace: true });
     } catch (e: any) {
       setErr(e?.response?.data?.message || "Login failed");
@@ -132,13 +140,12 @@ function LoginView({ onLoggedIn }: { onLoggedIn: (me: Me) => void }) {
       <h1 className="text-lg font-semibold mb-3">Log in</h1>
       <form onSubmit={submit} className="space-y-3">
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Email</label>
+          <label className="block text-xs text-gray-600 mb-1">Email or mobile</label>
           <input
-            type="email"
             className="w-full rounded border px-3 py-2 text-sm"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="username"
+            value={identity}
+            onChange={(e) => setIdentity(e.target.value)}
+            placeholder="name@example.com or 555-123-4567"
             required
           />
         </div>
@@ -163,7 +170,7 @@ function LoginView({ onLoggedIn }: { onLoggedIn: (me: Me) => void }) {
         </button>
       </form>
       <p className="text-xs text-gray-500 mt-3">
-        Tip: use <code>admin@example.com</code> / <code>secret123</code>
+        Tip: you can use your email or your mobile number.
       </p>
     </div>
   );
@@ -190,6 +197,8 @@ export default function App() {
         <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
         <Route path="/products/:id" element={<ProductDetail />} />
         <Route path="/vendors/:id" element={<VendorDetail />} />        
+        <Route path="/subscriptions" element={<MySubscriptions />} />  
+        <Route path="/account" element={<Account />} />      
       </Routes>
     </Shell>
   );

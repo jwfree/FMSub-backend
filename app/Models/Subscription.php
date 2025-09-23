@@ -9,18 +9,12 @@ class Subscription extends Model
 {
     use HasFactory;
 
+ // app/Models/Subscription.php
     protected $fillable = [
-        'customer_id',
-        'vendor_id',
-        'product_id',
-        'product_variant_id',
-        'status',        // active | paused | canceled
-        'start_date',
-        'frequency',     // weekly | biweekly | monthly
-        'quantity',
-        'notes',
+    'customer_id','vendor_id','product_id','product_variant_id',
+    'status','start_date','end_date','frequency','notes','quantity'
     ];
-
+    
     protected $with = [
         'product',
         'productVariant',
