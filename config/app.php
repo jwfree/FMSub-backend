@@ -123,4 +123,16 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Frontend App URL
+    |--------------------------------------------------------------------------
+    |
+    | This URL points to the public frontend app (React/Vite).
+    | It’s used when generating links for QR codes, emails, etc.
+    |
+    */
+
+    'frontend_url' => env('APP_FRONTEND_URL', 'https://fmsubapp.fbwks.com'),
+
 ];

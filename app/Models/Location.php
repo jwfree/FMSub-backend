@@ -10,20 +10,19 @@ class Location extends Model
     use HasFactory;
 
     protected $fillable = [
-        'vendor_id',
         'name',
-        'address1',
-        'address2',
+        'address_line1',
+        'address_line2',
         'city',
         'state',
         'postal_code',
-        'lat',
-        'lng',
-        'active',
+        // add any other columns you actually have
     ];
 
-    public function vendor()
+    // Vendors that use this location
+    public function vendors()
     {
-        return $this->belongsTo(Vendor::class);
+        return $this->belongsToMany(Vendor::class, 'vendor_locations', 'location_id', 'vendor_id')
+            ->withTimestamps();
     }
 }

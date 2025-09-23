@@ -76,37 +76,31 @@ class VendorMediaController extends Controller
      * GET /api/vendors/{vendor}/flyer.pdf
      * Printable flyer (public).
      */
+// app/Http/Controllers/VendorMediaController.php
+
     public function flyer(Vendor $vendor)
     {
         $appBase = config('app.frontend_url', env('APP_FRONTEND_URL', 'https://fmsubapp.fbwks.com'));
         $landing = rtrim($appBase, '/') . "/vendors/{$vendor->id}";
 
-        // Generate embedded QR so the PDF is standalone
-        $qrPng = QrCode::format('png')->size(480)->margin(1)->generate($landing);
-        $qrPngData = base64_encode($qrPng);
+        // Build product list (active)
+        $products = $vendor->products()
+            ->where('active', true)
+            ->with(['variants' => fn($q) => $q->where('active', true)])
+            ->orderBy('name')
+            ->get();
 
-        // Eager load active products/variants
-        $vendor->load(['products' => function ($q) {
-            $q->where('active', true)
-              ->with(['variants' => function ($v) {
-                  $v->where('active', true);
-              }])
-              ->orderBy('name');
-        }]);
+        // Generate QR PNG bytes and embed as data URI
+        $pngBytes = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')
+            ->size(480)->margin(1)->generate($landing);
 
-        $products = $vendor->products ?? collect();
-
-        $pdf = Pdf::loadView('flyers.vendor', [
-            'vendor'           => $vendor,
-            'products'         => $products,
-            'qrPngData'        => $qrPngData,        // <-- name matches the Blade
-            'deepLink'         => $landing,
-            'subscribeMessage' => "Never miss out again — subscribe and reserve your " .
-                                  $products->pluck('name')->take(5)->implode(', ') . ".",
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('flyers.vendor', [
+            'vendor'    => $vendor,
+            'products'  => $products,
+            'landing'   => $landing,
+            'qrDataUri' => 'data:image/png;base64,' . base64_encode($pngBytes),
         ])->setPaper('letter', 'portrait');
 
-        // Force a nice filename
-        $safeName = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $vendor->name ?: "Vendor_{$vendor->id}");
-        return $pdf->download("{$safeName}_Flyer.pdf");
+        return $pdf->download("Vendor_{$vendor->id}_flyer.pdf");
     }
 }

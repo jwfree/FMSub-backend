@@ -1,9 +1,19 @@
+# React/Vite SPA router: send unknown paths to index.html
+# Also disable MultiViews so Apache doesn't try content negotiation on pretty URLs
+Options -MultiViews
+
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteBase /
+  RewriteBase /fmsubapp/
 
-  # Redirect everything to index.html except existing files/folders
-  RewriteCond %{REQUEST_FILENAME} !-f
-  RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule . /index.html [L]
+  # Serve files/folders that actually exist
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Don't rewrite API calls (future-proof if frontend + API share a host)
+  RewriteCond %{REQUEST_URI} !^/api/
+
+  # Everything else -> index.html (relative path keeps it portable)
+  RewriteRule . index.html [L]
 </IfModule>
