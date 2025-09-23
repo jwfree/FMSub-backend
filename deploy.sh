@@ -6,19 +6,41 @@ HOST_ALIAS="bluehost"  # defined in ~/.ssh/config
 REMOTE_APP_DIR="/home4/fbwkscom/apps/fmsub-backend"
 REMOTE_FRONTEND_DIR="/home4/fbwkscom/public_html/fmsubapp"
 API_URL="https://fmsub.fbwks.com/api"
+FRONTEND_URL="https://fmsubapp.fbwks.com"   # used for sanity check + .htaccess
 # ----------------------------
 
 echo "==> Building frontend with VITE_API_URL=${API_URL}"
 pushd web >/dev/null
 printf "VITE_API_URL=%s\n" "$API_URL" > .env.production
-# Use npm ci when your node_modules is clean & lockfile present.
-# npm ci || npm install
 npm install
 npm run build
 popd >/dev/null
 
 echo "==> Uploading frontend to $HOST_ALIAS:$REMOTE_FRONTEND_DIR"
 rsync -az --delete web/dist/ "$HOST_ALIAS:$REMOTE_FRONTEND_DIR/"
+
+echo "==> Ensuring SPA .htaccess exists on remote"
+# Write a minimal SPA rewrite .htaccess directly on the server (so it doesn't get wiped)
+ssh -T "$HOST_ALIAS" bash <<'EOF_HTACCESS'
+set -euo pipefail
+FRONT_DIR="/home4/fbwkscom/public_html/fmsubapp"
+mkdir -p "$FRONT_DIR"
+cat > "$FRONT_DIR/.htaccess" <<'HTA'
+# SPA router: send unknown paths to index.html (but keep existing assets/API)
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /fmsubapp/
+  # Don’t rewrite existing files or directories
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Keep API and static requests intact
+  RewriteCond %{REQUEST_URI} !^/api/
+  RewriteRule . /fmsubapp/index.html [L]
+</IfModule>
+HTA
+EOF_HTACCESS
 
 echo "==> Syncing backend source to $HOST_ALIAS:$REMOTE_APP_DIR"
 RSYNC_EXCLUDES=(
@@ -44,26 +66,39 @@ ssh -T "$HOST_ALIAS" bash <<'EOF'
     alias composer="/usr/local/bin/php $HOME/bin/composer"
   fi
 
-composer install --no-dev --optimize-autoloader
+  echo "==> Composer install"
+  composer install --no-dev --optimize-autoloader
 
-# Make sure cache/compiled views/routes are fresh and reflect new code + env
-php artisan optimize:clear
-php artisan migrate --force
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
+  echo "==> Clear caches (handles route/config/view)"
+  php artisan optimize:clear || true
 
-mkdir -p storage bootstrap/cache
-chmod -R a+rw storage bootstrap/cache
+  echo "==> Migrate"
+  php artisan migrate --force
 
-echo "==> Health checks"
-curl -sfI "https://fmsub.fbwks.com/api/ping" | head -n 1
-curl -sfI -X OPTIONS "https://fmsub.fbwks.com/api/auth/login" \
-  -H "Origin: https://fmsubapp.fbwks.com" \
-  -H "Access-Control-Request-Method: POST" | grep -i "Access-Control-Allow-Origin" || true
-  
+  echo "==> Storage symlink (for vendor banner/photo)"
+  php artisan storage:link || true
+  mkdir -p storage bootstrap/cache
+  chmod -R a+rw storage bootstrap/cache
+
+  echo "==> Rebuild caches"
+  php artisan config:cache
+  php artisan route:cache
+  php artisan view:cache
+
+  echo "==> Sanity: check APP_FRONTEND_URL"
+  php -r 'echo "APP_FRONTEND_URL=".($_ENV["APP_FRONTEND_URL"]??getenv("APP_FRONTEND_URL")??"").PHP_EOL;' || true
+
+  echo "==> Health checks"
+  curl -sfI "https://fmsub.fbwks.com/api/ping" | head -n 1
+  # CORS preflight
+  curl -sfI -X OPTIONS "https://fmsub.fbwks.com/api/auth/login" \
+    -H "Origin: https://fmsubapp.fbwks.com" \
+    -H "Access-Control-Request-Method: POST" | grep -i "Access-Control-Allow-Origin" || true
+  # QR / flyer endpoints (HEAD)
+  curl -sfI "https://fmsub.fbwks.com/api/vendors/1/qr.png" | head -n 1 || true
+  curl -sfI "https://fmsub.fbwks.com/api/vendors/1/flyer.pdf" | head -n 1 || true
 
   echo "Server deploy complete."
 EOF
 
-echo "==> Done. Frontend: https://fmsubapp.fbwks.com | API: https://fmsub.fbwks.com/api/ping"
+echo "==> Done. Frontend: ${FRONTEND_URL} | API: ${API_URL}/ping"

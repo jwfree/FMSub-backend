@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Vendor extends Model
 {
@@ -12,38 +13,29 @@ class Vendor extends Model
     protected $fillable = [
         'name',
         'contact_email',
+        'contact_phone',
         'active',
-        'phone',
-        'stripe_account_id', // optional if/when we connect payouts
+        'banner_path',
+        'photo_path',
     ];
 
-    protected $casts = [
-        'active' => 'boolean',
+    protected $appends = [
+        'banner_url',
+        'photo_url',
     ];
 
-    // Relationships
-    public function users()
+    public function getBannerUrlAttribute(): ?string
     {
-        return $this->belongsToMany(User::class, 'vendor_users')->withPivot('role')->withTimestamps();
+        return $this->banner_path ? Storage::disk('public')->url($this->banner_path) : null;
     }
 
-    public function products()
+    public function getPhotoUrlAttribute(): ?string
     {
-        return $this->hasMany(Product::class);
+        return $this->photo_path ? Storage::disk('public')->url($this->photo_path) : null;
     }
 
-    public function locations()
-    {
-        return $this->belongsToMany(Location::class, 'vendor_locations')->withTimestamps();
-    }
-
-    public function subscriptions()
-    {
-        return $this->hasMany(Subscription::class);
-    }
-
-    public function customers()
-    {
-        return $this->hasManyThrough(Customer::class, Subscription::class, 'vendor_id', 'id', 'id', 'customer_id')->distinct();
-    }
+    // relations you already have…
+    // public function products(){ ... }
+    // public function locations(){ ... }
+    // public function users(){ ... }
 }

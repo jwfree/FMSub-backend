@@ -6,7 +6,7 @@ import ProductDetail from "./pages/ProductDetail";
 import VendorDetail from "./pages/VendorDetail";
 import MySubscriptions from "./pages/MySubscriptions";
 import Account from "./pages/Account";
-import { useNavigate } from "react-router-dom";
+import VendorManage from "./pages/VendorManage";
 
 type Me = { id: number; name: string; email: string };
 
@@ -51,17 +51,17 @@ function useAuth() {
     setMe(null);
   };
 
-  // NOTE: expose setMe so LoginView can notify parent after a successful login
+  // expose setMe so LoginView can notify parent after a successful login
   return { me, loading, login, logout, setMe };
 }
 
 // Header component
-function Header({ me, onLogout }: { me: Me | null; onLogout: () => Promise<void> }) {
+function Header({ me, onLogout }: { me: Me | null; onLogout: () => void }) {
   const navigate = useNavigate();
 
-  async function handleLogout() {
-    await onLogout();
-    navigate("/browse", { replace: true });   // <— route after logout
+  function handleLogout() {
+    onLogout(); // wrapped async in parent so this stays void
+    navigate("/browse", { replace: true });
   }
 
   return (
@@ -72,7 +72,7 @@ function Header({ me, onLogout }: { me: Me | null; onLogout: () => Promise<void>
           <Link className="underline" to="/browse">Browse</Link>
           {me ? (
             <div className="flex items-center gap-3">
-              <Link className="underline" to="/subs">My Subs</Link>
+              <Link className="underline" to="/subscriptions">My Subs</Link>
               <Link className="underline hidden sm:inline" to="/account">Account</Link>
               <button onClick={handleLogout} className="rounded px-3 py-1 border text-xs hover:bg-gray-50">
                 Logout
@@ -182,18 +182,19 @@ export default function App() {
     );
   }
 
-  // NOTE: No <BrowserRouter> here — it’s in main.tsx
+  // Router is in main.tsx
   return (
-    <Shell me={me} onLogout={logout}>
+    <Shell me={me} onLogout={() => { void logout(); }}>
       <Routes>
         <Route path="/" element={<Navigate to="/browse" replace />} />
         <Route path="/browse" element={<Browse />} />
         <Route path="/login" element={<LoginView onLoggedIn={setMe} />} />
-        <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
         <Route path="/products/:id" element={<ProductDetail />} />
-        <Route path="/vendors/:id" element={<VendorDetail />} />        
-        <Route path="/subs" element={<MySubscriptions />} />  
-        <Route path="/account" element={<Account />} />      
+        <Route path="/vendors/:id" element={<VendorDetail />} />
+        <Route path="/subscriptions" element={<MySubscriptions />} />
+        <Route path="/account" element={<Account />} />
+        <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
+        <Route path="/vendor/manage" element={<VendorManage />} />
       </Routes>
     </Shell>
   );

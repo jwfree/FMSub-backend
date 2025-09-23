@@ -3,7 +3,10 @@ import { Link } from "react-router-dom";
 export type Vendor = {
   id: number;
   name: string;
-  contact_email?: string;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  banner_url?: string | null;
+  photo_url?: string | null;
   active?: boolean;
 };
 

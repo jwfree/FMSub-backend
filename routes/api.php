@@ -8,6 +8,7 @@ use App\Http\Controllers\ProductsController;
 use App\Http\Controllers\LocationsController;
 use App\Http\Controllers\SubscriptionsController;
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\VendorMediaController;
 
 /*
 |--------------------------------------------------------------------------
@@ -36,7 +37,12 @@ Route::get('/vendors',                       [VendorController::class,   'index'
 Route::get('/vendors/{vendor}',              [VendorController::class,   'show']);
 Route::get('/vendors/{vendor}/products',     [ProductsController::class, 'byVendor']);
 Route::get('/vendors/{vendor}/locations',    [LocationsController::class,'forVendor']);
+Route::get('/vendors/{vendor}/qr.png', [VendorMediaController::class, 'qr'])->name('vendors.qr');
+Route::get('/vendors/{vendor}/flyer.pdf', [VendorMediaController::class, 'flyer']);
 
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/vendors/{vendor}/assets', [VendorMediaController::class, 'upload']); // manage media/contact
+});
 Route::get('/products',                      [ProductsController::class, 'index']);
 Route::get('/products/{product}',            [ProductsController::class, 'show']);
 Route::get('/locations',                     [LocationsController::class,'index']);
