@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Link, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Link, Navigate, useNavigate } from "react-router-dom";
 import api from "./lib/api";
 import Browse from "./pages/Browse";
 
@@ -9,7 +9,6 @@ function useAuth() {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Read token from localStorage and set axios header on mount
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
@@ -18,9 +17,8 @@ function useAuth() {
         .get("/me")
         .then((res) => setMe(res.data))
         .catch(() => {
-          // Token invalid → clear
           localStorage.removeItem("token");
-          delete api.defaults.headers.common.Authorization;
+          delete (api.defaults.headers as any).Authorization;
           setMe(null);
         })
         .finally(() => setLoading(false));
@@ -42,16 +40,14 @@ function useAuth() {
   const logout = async () => {
     try {
       await api.post("/auth/logout");
-    } catch {
-      // ignore errors on logout
-    } finally {
-      localStorage.removeItem("token");
-      delete api.defaults.headers.common.Authorization;
-      setMe(null);
-    }
+    } catch {}
+    localStorage.removeItem("token");
+    delete (api.defaults.headers as any).Authorization;
+    setMe(null);
   };
 
-  return { me, loading, login, logout };
+  // NOTE: expose setMe so LoginView can notify parent after a successful login
+  return { me, loading, login, logout, setMe };
 }
 
 function Header({ me, onLogout }: { me: Me | null; onLogout: () => void }) {
@@ -115,13 +111,12 @@ function LoginView({ onLoggedIn }: { onLoggedIn: (me: Me) => void }) {
     setErr(null);
     setLoading(true);
     try {
-      // Will set token + me via onLoggedIn callback from parent
       const res = await api.post("/auth/login", { email, password });
       const token = res.data.token as string;
       localStorage.setItem("token", token);
       api.defaults.headers.common.Authorization = `Bearer ${token}`;
       const meRes = await api.get("/me");
-      onLoggedIn(meRes.data);
+      onLoggedIn(meRes.data);               // <-- actually updates auth state now
       navigate("/browse", { replace: true });
     } catch (e: any) {
       setErr(e?.response?.data?.message || "Login failed");
@@ -166,14 +161,14 @@ function LoginView({ onLoggedIn }: { onLoggedIn: (me: Me) => void }) {
         </button>
       </form>
       <p className="text-xs text-gray-500 mt-3">
-        Tip: use <code>admin@example.com</code> / <code>secret123</code> (from seeding).
+        Tip: use <code>admin@example.com</code> / <code>secret123</code>
       </p>
     </div>
   );
 }
 
 export default function App() {
-  const { me, loading, logout } = useAuth();
+  const { me, loading, logout, setMe } = useAuth();
 
   if (loading) {
     return (
@@ -183,16 +178,15 @@ export default function App() {
     );
   }
 
+  // NOTE: No <BrowserRouter> here — it’s in main.tsx
   return (
-    <BrowserRouter>
-      <Shell me={me} onLogout={logout}>
-        <Routes>
-          <Route path="/" element={<Navigate to="/browse" replace />} />
-          <Route path="/browse" element={<Browse />} />
-          <Route path="/login" element={<LoginView onLoggedIn={() => { /* state set in useAuth after /me */ }} />} />
-          <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
-        </Routes>
-      </Shell>
-    </BrowserRouter>
+    <Shell me={me} onLogout={logout}>
+      <Routes>
+        <Route path="/" element={<Navigate to="/browse" replace />} />
+        <Route path="/browse" element={<Browse />} />
+        <Route path="/login" element={<LoginView onLoggedIn={setMe} />} />
+        <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
+      </Routes>
+    </Shell>
   );
 }
