@@ -9,64 +9,29 @@ class ProductsController extends Controller
 {
     /**
      * GET /api/products
-     * List active products with vendor + variants.
-     * Optional filters:
-     *   - vendor_id: only products for a vendor
-     *   - q: search in product name/description
-     *   - page, per_page
+     * q, vendor_id, page, per_page
      */
     public function index(Request $request)
     {
-        $perPage   = (int) $request->integer('per_page', 24);
-        $vendorId  = $request->integer('vendor_id');
-        $q         = trim((string) $request->get('q', ''));
+        $perPage  = (int) $request->integer('per_page', 20);
+        $q        = trim((string) $request->get('q', ''));
+        $vendorId = $request->get('vendor_id');
 
         $query = Product::query()
-            ->where('is_active', true)
+            ->when($q !== '', function ($qb) use ($q) {
+                $qb->where(function ($w) use ($q) {
+                    $w->where('name', 'like', "%{$q}%")
+                      ->orWhere('description', 'like', "%{$q}%");
+                });
+            })
+            ->when($vendorId, fn ($qb) => $qb->where('vendor_id', $vendorId))
+            ->where('active', true)
             ->with([
-                'vendor' => function ($v) {
-                    $v->select('id', 'name', 'active');
-                },
-                'variants' => function ($vv) {
-                    $vv->where('is_active', true);
-                },
-            ]);
+                'vendor',
+                'variants' => fn ($v) => $v->where('active', true),
+            ])
+            ->orderBy('name');
 
-        if ($vendorId) {
-            $query->where('vendor_id', $vendorId);
-        }
-
-        if ($q !== '') {
-            $query->where(function ($sub) use ($q) {
-                $sub->where('name', 'like', '%'.$q.'%')
-                    ->orWhere('description', 'like', '%'.$q.'%');
-            });
-        }
-
-        $products = $query
-            ->orderBy('name')
-            ->paginate($perPage);
-
-        return response()->json($products);
-    }
-
-    /**
-     * GET /api/products/{product}
-     * Single product with vendor + active variants.
-     */
-    public function show(Product $product)
-    {
-        if (!$product->is_active) {
-            return response()->json(['message' => 'Product not active'], 404);
-        }
-
-        $product->load([
-            'vendor:id,name,active',
-            'variants' => function ($q) {
-                $q->where('is_active', true);
-            },
-        ]);
-
-        return response()->json($product);
+        return response()->json($query->paginate($perPage));
     }
 }

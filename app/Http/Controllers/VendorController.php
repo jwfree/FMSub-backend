@@ -9,11 +9,7 @@ class VendorController extends Controller
 {
     /**
      * GET /api/vendors
-     * List active vendors with their products, variants, and locations.
-     * Optional filters:
-     *   - q: search in vendor name
-     *   - with=none : return vendors without eager relations (lighter payload)
-     *   - page, per_page (pagination)
+     * q, with=none, page, per_page
      */
     public function index(Request $request)
     {
@@ -26,16 +22,15 @@ class VendorController extends Controller
             $query->where('name', 'like', '%'.$q.'%');
         }
 
-        // by default include relations; allow opting out for smaller payloads
         if ($request->get('with') === 'none') {
             $vendors = $query->orderBy('name')->paginate($perPage);
         } else {
             $vendors = $query
                 ->with([
                     'products' => function ($q) {
-                        $q->where('active', true) // <- was is_active
+                        $q->where('active', true)
                           ->with(['variants' => function ($v) {
-                              $v->where('active', true); // <- was is_active
+                              $v->where('active', true);
                           }]);
                     },
                     'locations'
@@ -49,7 +44,6 @@ class VendorController extends Controller
 
     /**
      * GET /api/vendors/{vendor}
-     * Show a single vendor with products, variants, and locations.
      */
     public function show(Vendor $vendor, Request $request)
     {
@@ -60,9 +54,9 @@ class VendorController extends Controller
         if ($request->get('with') !== 'none') {
             $vendor->load([
                 'products' => function ($q) {
-                    $q->where('active', true) // <- was is_active
+                    $q->where('active', true)
                       ->with(['variants' => function ($v) {
-                          $v->where('active', true); // <- was is_active
+                          $v->where('active', true);
                       }]);
                 },
                 'locations'
