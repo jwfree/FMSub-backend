@@ -4,20 +4,19 @@ namespace App\Http\Controllers;
 
 use App\Models\Vendor;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests; // <-- add
 
 class VendorMediaController extends Controller
 {
-    /**
-     * POST /api/vendors/{vendor}/assets (multipart)
-     * Fields: name?, contact_email?, contact_phone?, banner(image)?, photo(image)?
-     */
+    use AuthorizesRequests; // <-- add
+
+    // POST /api/vendors/{vendor}/assets (multipart)
     public function upload(Vendor $vendor, Request $request)
     {
-        $this->authorize('update', $vendor);
+        $this->authorize('update', $vendor); // <-- now valid, uses VendorPolicy@update
 
         $data = $request->validate([
             'name'          => ['nullable','string','max:255'],
@@ -31,24 +30,14 @@ class VendorMediaController extends Controller
             $path = $request->file('banner')->store("vendors/{$vendor->id}", 'public');
             $vendor->banner_path = $path;
         }
-
         if ($request->hasFile('photo')) {
             $path = $request->file('photo')->store("vendors/{$vendor->id}", 'public');
             $vendor->photo_path = $path;
         }
 
-        if (isset($data['name'])) {
-            $vendor->name = $data['name'];
-        }
-
-        if (isset($data['contact_email'])) {
-            $vendor->contact_email = $data['contact_email'];
-        }
-
-        if (array_key_exists('contact_phone', $data)) {
-            // Store digits only; format for display in UI/Blade later.
-            $vendor->contact_phone = preg_replace('/\D+/', '', $data['contact_phone'] ?? '');
-        }
+        if (array_key_exists('name', $data))          $vendor->name = $data['name'];
+        if (array_key_exists('contact_email', $data)) $vendor->contact_email = $data['contact_email'];
+        if (array_key_exists('contact_phone', $data)) $vendor->contact_phone = preg_replace('/\D+/', '', $data['contact_phone'] ?? '');
 
         $vendor->save();
 

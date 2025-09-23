@@ -1,15 +1,16 @@
-// src/lib/api.ts
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api",
-  withCredentials: false, // we're using Bearer tokens, not cookies
+  baseURL: import.meta.env.VITE_API_URL || "/api",
 });
 
-// attach Authorization header if token exists
+// Always attach token if present (handles hard reloads)
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  const t = localStorage.getItem("token");
+  if (t) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (config.headers as any).Authorization = `Bearer ${t}`;
+  }
   return config;
 });
 
