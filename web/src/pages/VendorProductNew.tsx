@@ -24,6 +24,9 @@ export default function VendorProductNew() {
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -39,42 +42,52 @@ export default function VendorProductNew() {
 
   const canEdit = vendor?.can_edit === true;
 
-  async function submit(e: React.FormEvent) {
+    async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!vendor) return;
-
-    setCreating(true);
-    setErr(null);
-
+    setCreating(true); setErr(null);
     try {
-      const payload: any = {
-        name,
-        unit,
-        description: description || null,
-      };
+        if (imageFile) {
+        // multipart
+        const fd = new FormData();
+        fd.append("name", name);
+        fd.append("unit", unit);
+        if (description) fd.append("description", description);
+        // variant (serialize simply; backend expects nested keys)
+        if (sku || variantName || price) {
+            if (sku) fd.append("variant[sku]", sku);
+            if (variantName) fd.append("variant[name]", variantName);
+            if (price) fd.append("variant[price]", String(parseFloat(price)));
+            fd.append("variant[currency]", "USD");
+        }
+        fd.append("image", imageFile);
 
-      if (sku || variantName || price) {
-        payload.variant = {
-          sku: sku || null,
-          name: variantName || null,
-          price: price ? parseFloat(price) : null, // dollars; backend converts to cents
-          currency: "USD",
-        };
-      }
+        await api.post(`/vendors/${vendor.id}/products`, fd, {
+            headers: { "Content-Type": "multipart/form-data" },
+        });
+        } else {
+        // JSON
+        const payload: any = { name, unit, description: description || null };
+        if (sku || variantName || price) {
+            payload.variant = {
+            sku: sku || null,
+            name: variantName || null,
+            price: price ? parseFloat(price) : null,
+            currency: "USD",
+            };
+        }
+        await api.post(`/vendors/${vendor.id}/products`, payload);
+        }
 
-      await api.post(`/vendors/${vendor.id}/products`, payload);
-      
-      setToast("Product created");
-      setTimeout(() => setToast(null), 1200);
-
-      // Go to product detail (if you have it) or back to vendor page
-      navigate(`/vendors/${vendor.id}`, { replace: true });
+        setToast("Product created");
+        setTimeout(() => setToast(null), 1200);
+        navigate(`/vendors/${vendor.id}`, { replace: true });
     } catch (e: any) {
-      setErr(e?.response?.data?.message || "Create failed");
+        setErr(e?.response?.data?.message || "Create failed");
     } finally {
-      setCreating(false);
+        setCreating(false);
     }
-  }
+    }
 
   if (loading) return <div className="p-4">Loading…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
@@ -125,6 +138,26 @@ export default function VendorProductNew() {
 
         <div className="border-t pt-3">
           <div className="text-sm font-medium mb-2">First variant (optional)</div>
+        <div className="border-t pt-3">
+        <div className="text-sm font-medium mb-2">Product image (optional)</div>
+        <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+            const f = e.target.files?.[0] || null;
+            setImageFile(f);
+            setImagePreview(f ? URL.createObjectURL(f) : null);
+            }}
+        />
+        {imagePreview && (
+            <img
+            src={imagePreview}
+            alt="Preview"
+            className="mt-2 w-32 h-32 rounded object-cover border"
+            onLoad={() => imagePreview && URL.revokeObjectURL(imagePreview)}
+            />
+        )}
+        </div>          
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs text-gray-600 mb-1">SKU</label>

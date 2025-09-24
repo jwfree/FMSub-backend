@@ -20,6 +20,7 @@ class VendorProductController extends Controller
             'description' => ['nullable','string','max:5000'],
             'unit'        => ['required','string','max:64'], // e.g. "dozen", "lb", "bag"
             'active'      => ['nullable','boolean'],
+            'image' => ['nullable','image','max:4096'],
 
             // optional first variant fields
             'variant'                 => ['nullable','array'],
@@ -38,7 +39,11 @@ class VendorProductController extends Controller
             'unit'        => $data['unit'],
             'active'      => (bool)($data['active'] ?? true),
         ]);
-
+        if ($request->hasFile('image')) {
+            $path = $request->file('image')->store("vendors/{$vendor->id}/products", 'public');
+            $product->image_path = $path;
+            $product->save();
+        }
         // Optional first variant
         if (!empty($data['variant'])) {
             $v = $data['variant'];
@@ -83,4 +88,22 @@ class VendorProductController extends Controller
 
         return response()->json($product->fresh());
     }
+    
+    public function uploadImage(Vendor $vendor, Product $product, Request $request)
+    {
+        $this->authorize('update', $vendor);
+        if ($product->vendor_id !== $vendor->id) {
+            return response()->json(['message' => 'Product does not belong to this vendor'], 404);
+        }
+
+        $data = $request->validate([
+            'image' => ['required','image','max:4096'],
+        ]);
+
+        $path = $request->file('image')->store("vendors/{$vendor->id}/products", 'public');
+        $product->image_path = $path;
+        $product->save();
+
+        return response()->json($product->fresh());
+    }    
 }
