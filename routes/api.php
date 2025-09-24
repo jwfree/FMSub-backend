@@ -9,6 +9,7 @@ use App\Http\Controllers\LocationsController;
 use App\Http\Controllers\SubscriptionsController;
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\VendorMediaController;
+use App\Http\Controllers\VendorProductController;
 
 /*
 |--------------------------------------------------------------------------
