@@ -1,4 +1,3 @@
-// at top
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api from "../lib/api";
@@ -7,12 +6,13 @@ import ProductCard from "../components/ProductCard";
 type Vendor = {
   id: number;
   name: string;
-  contact_email?: string | null;
+   description?: string | null;           // <— add
+   contact_email?: string | null;
   contact_phone?: string | null;
-  banner_path?: string | null;
-  photo_path?: string | null;
+  banner_url?: string | null;   // ✅ use URL fields
+  photo_url?: string | null;    // ✅ use URL fields
   active: boolean;
-  can_edit?: boolean; // <— comes from API
+  can_edit?: boolean;
   products?: any[];
 };
 
@@ -43,6 +43,7 @@ export default function VendorDetail() {
         setName(r.data?.name ?? "");
         setContactEmail(r.data?.contact_email ?? "");
         setContactPhone(r.data?.contact_phone ?? "");
+        setDescription(r.data?.description ?? "");               
       })
       .catch((e) => !cancelled && setErr(e?.response?.data?.message || e.message))
       .finally(() => !cancelled && setLoading(false));
@@ -57,6 +58,7 @@ export default function VendorDetail() {
       if (name !== vendor.name) form.append("name", name);
       if (contactEmail !== (vendor.contact_email ?? "")) form.append("contact_email", contactEmail || "");
       if (contactPhone !== (vendor.contact_phone ?? "")) form.append("contact_phone", contactPhone || "");
+      if ((description ?? "") !== (vendor.description ?? "")) form.append("description", description || ""); // <—
       if (bannerFile) form.append("banner", bannerFile);
       if (photoFile) form.append("photo", photoFile);
 
@@ -81,8 +83,14 @@ export default function VendorDetail() {
   if (loading) return <div className="p-4">Loading…</div>;
   if (err || !vendor) return <div className="p-4 text-red-600">{err ?? "Not found"}</div>;
 
-  const bannerUrl = vendor.banner_path ? `/storage/${vendor.banner_path}` : undefined;
-  const photoUrl  = vendor.photo_path  ? `/storage/${vendor.photo_path}`  : undefined;
+  // ✅ use full URLs from API (no /storage building)
+  const bannerUrl = vendor.banner_url || undefined;
+  const photoUrl  = vendor.photo_url  || undefined;
+
+  // ✅ build absolute API links for QR / flyer
+  const API = (api.defaults as any).baseURL as string; // e.g. https://fmsub.fbwks.com/api
+  const flyerHref = `${API}/vendors/${vendor.id}/flyer.pdf`;
+  const qrHref    = `${API}/vendors/${vendor.id}/qr.png`;
 
   return (
     <div className="mx-auto max-w-3xl p-4">
@@ -92,7 +100,12 @@ export default function VendorDetail() {
           src={bannerUrl}
           alt="Vendor banner"
           className="w-full h-40 sm:h-56 object-cover rounded-2xl mb-3"
+          onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
         />
+      )}
+      {/* Description (display) */}
+      {vendor.description && (
+        <div className="mt-4 text-xl">{vendor.description}</div>
       )}
 
       {/* Header row */}
@@ -101,7 +114,8 @@ export default function VendorDetail() {
           <img
             src={photoUrl}
             alt="Vendor"
-            className="w-16 h-16 rounded-xl object-cover"
+            className="w-16 h-16 rounded-xl object-cover border"
+            onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
           />
         )}
         <div className="flex-1">
@@ -110,6 +124,17 @@ export default function VendorDetail() {
             {vendor.contact_email && <div>{vendor.contact_email}</div>}
             {vendor.contact_phone && <div>{formatPhone(vendor.contact_phone)}</div>}
           </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="w-full rounded border p-2 text-sm"
+              placeholder="Tell shoppers about your farm/stand and what you offer…"
+            />
+          </div>
+
         </div>
         {vendor.can_edit && (
           <button
@@ -121,7 +146,7 @@ export default function VendorDetail() {
         )}
       </div>
 
-      {/* Edit panel (only if can_edit) */}
+      {/* Edit panel */}
       {vendor.can_edit && openEdit && (
         <div className="mt-4 rounded-2xl border p-4 space-y-3">
           <div>
@@ -156,20 +181,10 @@ export default function VendorDetail() {
             >
               {saving ? "Saving…" : "Save changes"}
             </button>
-            <a
-              href={`/api/vendors/${vendor.id}/flyer.pdf`}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded border px-4 py-2 text-sm"
-            >
+            <a href={flyerHref} target="_blank" rel="noreferrer" className="rounded border px-4 py-2 text-sm">
               Download flyer
             </a>
-            <a
-              href={`/api/vendors/${vendor.id}/qr.png`}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded border px-4 py-2 text-sm"
-            >
+            <a href={qrHref} target="_blank" rel="noreferrer" className="rounded border px-4 py-2 text-sm">
               Open QR
             </a>
           </div>
