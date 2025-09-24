@@ -31,6 +31,7 @@ export default function VendorDetail() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [description, setDescription] = useState("");
 
   useEffect(() => {
     let cancelled = false;
