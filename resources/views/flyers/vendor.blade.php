@@ -26,9 +26,27 @@
       $bannerFile = $vendor->banner_path
         ? public_path('storage/'.$vendor->banner_path)
         : public_path('images/vendor-banner-default.jpg');
+      $bannerOk  = is_file($bannerFile);
+      $bannerUrl = $bannerOk ? ('file://'.$bannerFile) : null;
+
+      $photoFile = $vendor->photo_path
+        ? public_path('storage/'.$vendor->photo_path)
+        : public_path('images/vendor-photo-default.jpg');
+      $photoOk  = is_file($photoFile);
+      $photoUrl = $photoOk ? ('file://'.$photoFile) : null;
     @endphp
-    @if (is_file($bannerFile))
-      <img src="{{ $bannerFile }}" alt="Vendor banner" class="banner" />
+
+    @if ($bannerUrl)
+      <div style="
+        width:100%;
+        height:180px;
+        border-radius:12px;
+        margin-bottom:14px;
+        background-image:url('{{ $bannerUrl }}');
+        background-size:cover;
+        background-position:center center;
+        background-repeat:no-repeat;
+      "></div>
     @endif
 
     {{-- Two-column row: left = photo + text, right = QR --}}
@@ -43,8 +61,15 @@
                     ? public_path('storage/'.$vendor->photo_path)
                     : public_path('images/vendor-photo-default.jpg');
                 @endphp
-                @if (is_file($photoFile))
-                  <img src="{{ $photoFile }}" alt="Vendor photo" class="photo" />
+                @if ($photoUrl)
+                  <div style="
+                    width:168px; height:168px;
+                    border-radius:10px;
+                    background-image:url('{{ $photoUrl }}');
+                    background-size:cover;
+                    background-position:center center;
+                    background-repeat:no-repeat;
+                  "></div>
                 @endif
               </td>
               <td>

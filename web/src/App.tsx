@@ -7,6 +7,8 @@ import VendorDetail from "./pages/VendorDetail";
 import MySubscriptions from "./pages/MySubscriptions";
 import Account from "./pages/Account";
 import VendorManage from "./pages/VendorManage";
+import VendorNew from "./pages/VendorNew";
+import VendorProductNew from "./pages/VendorProductNew";
 
 type Me = { id: number; name: string; email: string };
 
@@ -56,13 +58,25 @@ function useAuth() {
 }
 
 // Header component
-function Header({ me, onLogout }: { me: Me | null; onLogout: () => void }) {
+function Header({ me, onLogout }: { me: Me | null; onLogout: () => Promise<void> }) {
   const navigate = useNavigate();
+  const [hasVendor, setHasVendor] = useState(false);
 
-  function handleLogout() {
-    onLogout(); // wrapped async in parent so this stays void
-    navigate("/browse", { replace: true });
-  }
+  useEffect(() => {
+    let ignore = false;
+    async function check() {
+      if (!me) { setHasVendor(false); return; }
+      try {
+        // backend: allow ?mine=1 to return vendors the user can edit/owns
+        const r = await api.get("/vendors", { params: { per_page: 1, mine: 1, with: "none" } });
+        if (!ignore) setHasVendor((r.data?.data?.length ?? 0) > 0);
+      } catch { if (!ignore) setHasVendor(false); }
+    }
+    check();
+    return () => { ignore = true; };
+  }, [me]);
+
+  async function handleLogout() { await onLogout(); navigate("/browse", { replace: true }); }
 
   return (
     <header className="sticky top-0 z-10 bg-white border-b">
@@ -70,13 +84,12 @@ function Header({ me, onLogout }: { me: Me | null; onLogout: () => void }) {
         <Link to="/browse" className="font-semibold tracking-tight">FMSub</Link>
         <nav className="flex items-center gap-4 text-sm">
           <Link className="underline" to="/browse">Browse</Link>
+          {me && !hasVendor && <Link className="underline" to="/vendor/new">Become a vendor</Link>}
           {me ? (
             <div className="flex items-center gap-3">
-              <Link className="underline" to="/subscriptions">My Subs</Link>
+              <Link className="underline" to="/subs">My Subs</Link>
               <Link className="underline hidden sm:inline" to="/account">Account</Link>
-              <button onClick={handleLogout} className="rounded px-3 py-1 border text-xs hover:bg-gray-50">
-                Logout
-              </button>
+              <button onClick={handleLogout} className="rounded px-3 py-1 border text-xs hover:bg-gray-50">Logout</button>
             </div>
           ) : (
             <Link to="/login" className="rounded px-3 py-1 border text-xs hover:bg-gray-50">Login</Link>
@@ -93,7 +106,7 @@ function Shell({
   children,
 }: {
   me: Me | null;
-  onLogout: () => void;
+  onLogout: () => Promise<void>;   // <-- was () => void
   children: React.ReactNode;
 }) {
   return (
@@ -184,7 +197,12 @@ export default function App() {
 
   // Router is in main.tsx
   return (
-    <Shell me={me} onLogout={() => { void logout(); }}>
+    <Shell
+      me={me}
+      onLogout={async () => {
+        await logout();
+      }}
+    >
       <Routes>
         <Route path="/" element={<Navigate to="/browse" replace />} />
         <Route path="/browse" element={<Browse />} />
@@ -195,6 +213,8 @@ export default function App() {
         <Route path="/account" element={<Account />} />
         <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
         <Route path="/vendor/manage" element={<VendorManage />} />
+        <Route path="/vendor/new" element={<VendorNew />} />
+        <Route path="/vendors/:id/products/new" element={<VendorProductNew />} />
       </Routes>
     </Shell>
   );

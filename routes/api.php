@@ -28,8 +28,16 @@ Route::post('/auth/logout', [AuthController::class, 'logout'])->middleware('auth
 Route::get('/me',           [AuthController::class, 'me'])->middleware('auth:sanctum');
 Route::post('/auth/signup', [\App\Http\Controllers\AuthController::class, 'signup']);
 Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/account', [AccountController::class, 'show']);
-    Route::patch('/account', [AccountController::class, 'update']);
+Route::get('/account', [AccountController::class, 'show']);
+Route::patch('/account', [AccountController::class, 'update']);
+Route::middleware('auth:sanctum')->group(function () {
+  Route::post('/vendors', [\App\Http\Controllers\VendorOnboardingController::class, 'store']);
+});
+Route::middleware('auth:sanctum')->group(function () {
+  Route::post('/vendors/{vendor}/products', [\App\Http\Controllers\ProductController::class, 'store']);
+  Route::patch('/products/{product}', [\App\Http\Controllers\ProductController::class, 'update']);
+  Route::delete('/products/{product}', [\App\Http\Controllers\ProductController::class, 'destroy']);
+});
 });
 
 // Public catalog endpoints

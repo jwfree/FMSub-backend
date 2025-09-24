@@ -95,7 +95,7 @@ class VendorMediaController extends Controller
             'name'          => ['nullable','string','max:255'],
             'contact_email' => ['nullable','email','max:255'],
             'contact_phone' => ['nullable','string','max:32'],
-            'flyer_text'    => ['nullable','string'],
+            'flyer_text'    => ['nullable','string','max:5000'],
             'description'   => ['nullable','string','max:5000'],
             'banner'        => ['nullable','image','max:4096'],
             'photo'         => ['nullable','image','max:4096'],
@@ -114,7 +114,7 @@ class VendorMediaController extends Controller
         if (array_key_exists('contact_email', $data)) $vendor->contact_email = $data['contact_email'];
         if (array_key_exists('contact_phone', $data)) $vendor->contact_phone = preg_replace('/\D+/', '', $data['contact_phone'] ?? '');
         if (array_key_exists('description', $data))   $vendor->description = $data['description'];
-        if (array_key_exists('flyer_text', $data))   $vendor->description = $data['flyer_text'];
+        if (array_key_exists('flyer_text', $data))   $vendor->flyer_text = $data['flyer_text'];
 
         $vendor->save();
 
