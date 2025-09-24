@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
 
 class Vendor extends Model
 {
@@ -12,6 +11,8 @@ class Vendor extends Model
 
     protected $fillable = [
         'name',
+        'description',
+        'flyer_text',
         'contact_email',
         'contact_phone',
         'banner_path',
@@ -19,36 +20,40 @@ class Vendor extends Model
         'active',
     ];
 
-    // Include computed URLs in JSON
-    protected $appends = ['banner_url', 'photo_url'];
-
-    // Hide raw paths if you prefer (optional)
-    // protected $hidden = ['banner_path', 'photo_path'];
-
-    // Relations
+    // Users attached to this vendor
     public function users()
     {
         return $this->belongsToMany(User::class, 'vendor_users')->withPivot('role');
     }
 
+    // Products owned by this vendor
     public function products()
     {
         return $this->hasMany(Product::class);
     }
 
+    // LOCATIONS: many-to-many via pivot table vendor_locations
     public function locations()
     {
         return $this->belongsToMany(Location::class, 'vendor_locations', 'vendor_id', 'location_id');
     }
 
-    // Accessors
-    public function getBannerUrlAttribute(): ?string
+    /**
+     * Customize array/json output.
+     * Always include banner_url and photo_url with defaults if missing.
+     */
+    public function toArray()
     {
-        return $this->banner_path ? url(Storage::url($this->banner_path)) : null;
-    }
+        $arr = parent::toArray();
 
-    public function getPhotoUrlAttribute(): ?string
-    {
-        return $this->photo_path ? url(Storage::url($this->photo_path)) : null;
+        $arr['banner_url'] = $this->banner_path
+            ? asset('storage/' . $this->banner_path)
+            : asset('images/vendor-banner-default.jpg');
+
+        $arr['photo_url'] = $this->photo_path
+            ? asset('storage/' . $this->photo_path)
+            : asset('images/vendor-photo-default.jpg');
+
+        return $arr;
     }
 }

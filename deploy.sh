@@ -6,31 +6,18 @@ HOST_ALIAS="bluehost"  # defined in ~/.ssh/config
 REMOTE_APP_DIR="/home4/fbwkscom/apps/fmsub-backend"
 REMOTE_FRONTEND_DIR="/home4/fbwkscom/public_html/fmsubapp"
 API_URL="https://fmsub.fbwks.com/api"
-FRONTEND_URL="https://fmsubapp.fbwks.com"   # used for sanity check + .htaccess
+FRONTEND_URL="https://fmsubapp.fbwks.com"   # used for sanity check
 # ----------------------------
 
 echo "==> Building frontend with VITE_API_URL=${API_URL}"
 pushd web >/dev/null
 printf "VITE_API_URL=%s\n" "$API_URL" > .env.production
-# If you later wire this in vite.config.ts you can also do:
-# printf "VITE_BASE=%s\n" "/fmsubapp/" >> .env.production
-
-if [ -f package-lock.json ]; then
-  npm ci
-else
-  npm install
-fi
-
+npm install
 npm run build
 popd >/dev/null
 
-echo "==> Uploading frontend dist to $HOST_ALIAS:$REMOTE_FRONTEND_DIR"
-# Deploy built assets; keep any pre-existing .htaccess intact
-rsync -az --delete --exclude ".htaccess" web/dist/ "$HOST_ALIAS:$REMOTE_FRONTEND_DIR/"
-
-echo "==> Overlaying static public/ (favicons, robots.txt, optional .htaccess)"
-# This does NOT use --delete, so it won't remove pre-existing files
-rsync -az web/public/ "$HOST_ALIAS:$REMOTE_FRONTEND_DIR/"
+echo "==> Uploading frontend to $HOST_ALIAS:$REMOTE_FRONTEND_DIR"
+rsync -az --delete web/dist/ "$HOST_ALIAS:$REMOTE_FRONTEND_DIR/"
 
 echo "==> Ensuring SPA .htaccess exists on remote"
 ssh -T "$HOST_ALIAS" bash <<'EOF_HTACCESS'
@@ -38,17 +25,20 @@ set -euo pipefail
 FRONT_DIR="/home4/fbwkscom/public_html/fmsubapp"
 mkdir -p "$FRONT_DIR"
 cat > "$FRONT_DIR/.htaccess" <<'HTA'
-# React/Vite SPA router for subdomain docroot
+# React/Vite SPA router: send unknown paths to index.html
 <IfModule mod_rewrite.c>
   RewriteEngine On
 
-  # Serve existing files or directories as-is
+  # Serve existing files or dirs as-is
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
 
-  # Everything else → index.html
-  RewriteRule ^ index.html [L]
+  # Don’t rewrite built assets or common static files
+  RewriteRule ^(assets/|favicon\.ico|robots\.txt|manifest\.webmanifest) - [L]
+
+  # Everything else -> index.html
+  RewriteRule . index.html [L]
 </IfModule>
 HTA
 EOF_HTACCESS
@@ -72,7 +62,6 @@ ssh -T "$HOST_ALIAS" bash <<'EOF'
   APP_DIR="/home4/fbwkscom/apps/fmsub-backend"
   cd "$APP_DIR"
 
-  # Ensure composer resolves correctly in non-login shells
   if ! command -v composer >/dev/null; then
     alias composer="/usr/local/bin/php $HOME/bin/composer"
   fi
@@ -96,21 +85,14 @@ ssh -T "$HOST_ALIAS" bash <<'EOF'
   php artisan route:cache
   php artisan view:cache
 
-  echo "==> Sanity: APP_FRONTEND_URL"
-  FRONT_URL=$(php -r 'echo $_ENV["APP_FRONTEND_URL"] ?? getenv("APP_FRONTEND_URL") ?? "";')
-  if [ -z "$FRONT_URL" ]; then
-    echo "WARNING: APP_FRONTEND_URL is empty. QR links may be wrong."
-  else
-    echo "APP_FRONTEND_URL=$FRONT_URL"
-  fi
+  echo "==> Sanity: check APP_FRONTEND_URL"
+  php -r 'echo "APP_FRONTEND_URL=".($_ENV["APP_FRONTEND_URL"]??getenv("APP_FRONTEND_URL")??"").PHP_EOL;' || true
 
   echo "==> Health checks"
   curl -sfI "https://fmsub.fbwks.com/api/ping" | head -n 1
-  # CORS preflight
   curl -sfI -X OPTIONS "https://fmsub.fbwks.com/api/auth/login" \
     -H "Origin: https://fmsubapp.fbwks.com" \
     -H "Access-Control-Request-Method: POST" | grep -i "Access-Control-Allow-Origin" || true
-  # QR / flyer endpoints (HEAD)
   curl -sfI "https://fmsub.fbwks.com/api/vendors/1/qr.png" | head -n 1 || true
   curl -sfI "https://fmsub.fbwks.com/api/vendors/1/flyer.pdf" | head -n 1 || true
 
