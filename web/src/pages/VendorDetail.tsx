@@ -112,6 +112,7 @@ export default function VendorDetail() {
   const API = (api.defaults as any).baseURL as string;
   const flyerHref = `${API}/vendors/${vendor.id}/flyer.pdf`;
   const qrHref = `${API}/vendors/${vendor.id}/qr.png`;
+  const buttonClass = "rounded border px-4 py-2 text-sm";
 
   return (
     <div className="mx-auto max-w-3xl p-4">
@@ -244,20 +245,19 @@ export default function VendorDetail() {
             >
               {saving ? "Saving…" : "Save changes"}
             </button>
-            <a href={flyerHref} target="_blank" rel="noreferrer" className="rounded border px-4 py-2 text-sm">
+            
+
+            <a href={flyerHref} target="_blank" rel="noreferrer" className={buttonClass}>
               Download flyer
             </a>
-            <a href={qrHref} target="_blank" rel="noreferrer" className="rounded border px-4 py-2 text-sm">
+            <a href={qrHref} target="_blank" rel="noreferrer" className={buttonClass}>
               Open QR
             </a>
             {vendor.can_edit && (
-              <Link
-                to={`/vendors/${vendor.id}/products/new`}
-                className="rounded border px-3 py-1 text-xs"
-              >
+              <Link to={`/vendors/${vendor.id}/products/new`} className={buttonClass}>
                 Add product
               </Link>
-            )}            
+            )}           
           </div>
         </div>
       )}
