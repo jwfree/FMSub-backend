@@ -22,18 +22,23 @@ class VendorProductController extends Controller
             try {
                 $full = $disk->path($path);
                 $img  = new \Imagick($full);
+
+                // Coalesce multi-frame HEIF just in case
                 if ($img->getNumberImages() > 1) {
                     $img = $img->coalesceImages();
                     $img->setIteratorIndex(0);
                 }
+
                 $img->setImageFormat('jpeg');
                 $img->setImageCompressionQuality(85);
+
                 $jpegPath = preg_replace('/\.(heic|heif)$/i', '.jpg', $path);
                 $disk->put($jpegPath, $img->getImageBlob());
                 $disk->delete($path);
+
                 return $jpegPath;
             } catch (\Throwable $e) {
-                // Optional log
+                // Optional: \Log::warning('HEIC convert failed: '.$e->getMessage());
             }
         }
 
@@ -54,13 +59,14 @@ class VendorProductController extends Controller
             // Accept HEIC/HEIF and common formats
             'image'       => ['nullable','file','max:4096','mimes:jpeg,jpg,png,gif,webp,heic,heif'],
 
-            // Single-variant (required) – dollars only (we normalize to cents)
-            'variant'             => ['required','array'],
-            'variant.sku'         => ['nullable','string','max:64'],
-            'variant.name'        => ['nullable','string','max:255'],
-            'variant.price'       => ['required','numeric','min:0'],
-            'variant.currency'    => ['nullable','string','size:3'],
-            'variant.active'      => ['nullable','boolean'],
+            // Single-variant (required) – **cents only**
+            'variant'                 => ['required','array'],
+            'variant.sku'             => ['nullable','string','max:64'],
+            'variant.name'            => ['nullable','string','max:255'],
+            'variant.price'           => ['prohibited'],                 // forbid dollars field
+            'variant.price_cents'     => ['required','integer','min:0'], // must provide cents
+            'variant.currency'        => ['nullable','string','size:3'],
+            'variant.active'          => ['nullable','boolean'],
         ]);
 
         $product = Product::create([
@@ -79,15 +85,14 @@ class VendorProductController extends Controller
             $product->save();
         }
 
-        // Required single variant: dollars → cents
-        $v      = $data['variant'];
-        $cents  = (int) round(($v['price'] ?? 0) * 100);
+        // Required single variant: **read cents only**
+        $v = $data['variant'];
 
         ProductVariant::create([
             'product_id'  => $product->id,
             'sku'         => $v['sku'] ?? null,
             'name'        => $v['name'] ?? $product->unit,
-            'price_cents' => $cents,
+            'price_cents' => (int)$v['price_cents'],
             'currency'    => strtoupper($v['currency'] ?? 'USD'),
             'active'      => (bool)($v['active'] ?? true),
         ]);
