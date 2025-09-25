@@ -1,17 +1,19 @@
-import { useEffect, useState, useCallback } from "react";
+// web/src/pages/VendorDetail.tsx
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api from "../lib/api";
 import ProductCard from "../components/ProductCard";
+import { ensureJpeg } from "../lib/convertHeic";
 
 type Vendor = {
   id: number;
   name: string;
   description?: string | null;
-  flyer_text?: string | null;   // ⬅️ add
+  flyer_text?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;
-  banner_url?: string | null;
-  photo_url?: string | null;
+  banner_url?: string | null;  // comes from API
+  photo_url?: string | null;   // comes from API
   active: boolean;
   can_edit?: boolean;
   products?: any[];
@@ -27,37 +29,85 @@ export default function VendorDetail() {
   const [openEdit, setOpenEdit] = useState(false);
   const [name, setName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
-  const [phoneInput, setPhoneInput] = useState(""); // shown exactly as typed
+  const [contactPhone, setContactPhone] = useState("");
   const [description, setDescription] = useState("");
-  const [flyerText, setFlyerText] = useState("");   // ⬅️ add
+  const [flyerText, setFlyerText] = useState("");
 
+  // image state (files + previews + warnings)
   const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [bannerWarn, setBannerWarn] = useState<string | null>(null);
+
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoWarn, setPhotoWarn] = useState<string | null>(null);
+
+  // track object URLs to revoke on cleanup
+  const objectUrls = useRef<string[]>([]);
+
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [showPhoto, setShowPhoto] = useState(false);
-
-  const fetchVendor = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await api.get(`/vendors/${id}`);
-      setVendor(r.data);
-      setName(r.data?.name ?? "");
-      setContactEmail(r.data?.contact_email ?? "");
-      setPhoneInput(formatPhone(r.data?.contact_phone ?? "")); // preload pretty
-      setDescription(r.data?.description ?? "");
-      setFlyerText(r.data?.flyer_text ?? "");                  // ⬅️ add
-      setErr(null);
-    } catch (e: any) {
-      setErr(e?.response?.data?.message || e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
 
   useEffect(() => {
-    fetchVendor();
-  }, [fetchVendor]);
+    let cancelled = false;
+    setLoading(true);
+    api
+      .get(`/vendors/${id}`)
+      .then((r) => {
+        if (cancelled) return;
+        setVendor(r.data);
+        setName(r.data?.name ?? "");
+        setContactEmail(r.data?.contact_email ?? "");
+        setContactPhone(r.data?.contact_phone ?? "");
+        setDescription(r.data?.description ?? "");
+        setFlyerText(r.data?.flyer_text ?? "");
+      })
+      .catch((e) => !cancelled && setErr(e?.response?.data?.message || e.message))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, [id]);
+
+  // revoke blob URLs on unmount or when files change
+  useEffect(() => {
+    return () => {
+      objectUrls.current.forEach((u) => URL.revokeObjectURL(u));
+      objectUrls.current = [];
+    };
+  }, []);
+
+  async function onPickBanner(f?: File | null) {
+    setBannerWarn(null);
+    setBannerPreview(null);
+    setBannerFile(null);
+    if (!f) return;
+    const { file, previewUrl, warning } = await ensureJpeg(f, {
+      quality: 0.9,
+      maxWidth: 3000,
+      maxHeight: 3000,
+      maxSizeMB: 8,
+    });
+    objectUrls.current.push(previewUrl);
+    setBannerFile(file);
+    setBannerPreview(previewUrl);
+    setBannerWarn(warning || null);
+  }
+
+  async function onPickPhoto(f?: File | null) {
+    setPhotoWarn(null);
+    setPhotoPreview(null);
+    setPhotoFile(null);
+    if (!f) return;
+    const { file, previewUrl, warning } = await ensureJpeg(f, {
+      quality: 0.9,
+      maxWidth: 3000,
+      maxHeight: 3000,
+      maxSizeMB: 8,
+    });
+    objectUrls.current.push(previewUrl);
+    setPhotoFile(file);
+    setPhotoPreview(previewUrl);
+    setPhotoWarn(warning || null);
+  }
 
   async function saveEdits() {
     if (!vendor) return;
@@ -65,54 +115,40 @@ export default function VendorDetail() {
     try {
       const form = new FormData();
       if (name !== vendor.name) form.append("name", name);
-      if ((contactEmail ?? "") !== (vendor.contact_email ?? "")) {
-        form.append("contact_email", contactEmail || "");
-      }
-      // normalize phone ONLY on submit
-      const normalizedPhone = normalizePhone(phoneInput);
-      if (normalizedPhone !== (vendor.contact_phone ?? "")) {
-        form.append("contact_phone", normalizedPhone);
-      }
-      if ((description ?? "") !== (vendor.description ?? "")) {
-        form.append("description", description || "");
-      }
-      if ((flyerText ?? "") !== (vendor.flyer_text ?? "")) {   
-        form.append("flyer_text", flyerText || "");
-      }
+      if (contactEmail !== (vendor.contact_email ?? "")) form.append("contact_email", contactEmail || "");
+      if (contactPhone !== (vendor.contact_phone ?? "")) form.append("contact_phone", contactPhone || "");
+      if ((description ?? "") !== (vendor.description ?? "")) form.append("description", description || "");
+      if ((flyerText ?? "") !== (vendor.flyer_text ?? "")) form.append("flyer_text", flyerText || "");
       if (bannerFile) form.append("banner", bannerFile);
-      if (photoFile) form.append("photo", photoFile);
+      if (photoFile)  form.append("photo",  photoFile);
 
-      await api.post(`/vendors/${vendor.id}/assets`, form, {
+      const res = await api.post(`/vendors/${vendor.id}/assets`, form, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      await fetchVendor(); // refresh products + URLs
+      setVendor(res.data);
       setOpenEdit(false);
-      setBannerFile(null);
-      setPhotoFile(null);
-      flash("Saved!");
+      setBannerFile(null); setBannerPreview(null); setBannerWarn(null);
+      setPhotoFile(null);  setPhotoPreview(null);  setPhotoWarn(null);
+      setToast("Saved!");
+      setTimeout(() => setToast(null), 1200);
     } catch (e: any) {
-      flash(e?.response?.data?.message || "Save failed", 1600);
+      setToast(e?.response?.data?.message || "Save failed");
+      setTimeout(() => setToast(null), 1600);
     } finally {
       setSaving(false);
     }
   }
 
-  function flash(msg: string, ms = 1200) {
-    setToast(msg);
-    setTimeout(() => setToast(null), ms);
-  }
-
   if (loading) return <div className="p-4">Loading…</div>;
   if (err || !vendor) return <div className="p-4 text-red-600">{err ?? "Not found"}</div>;
 
-  const bannerUrl = vendor.banner_url || undefined;
-  const photoUrl = vendor.photo_url || undefined;
+  const bannerUrl = bannerPreview || vendor.banner_url || undefined;
+  const photoUrl  = photoPreview  || vendor.photo_url  || undefined;
 
-  const API = (api.defaults as any).baseURL as string;
+  const API = (api.defaults as any).baseURL as string; // e.g. https://fmsub.fbwks.com/api
   const flyerHref = `${API}/vendors/${vendor.id}/flyer.pdf`;
-  const qrHref = `${API}/vendors/${vendor.id}/qr.png`;
-  const buttonClass = "rounded border px-4 py-2 text-sm";
+  const qrHref    = `${API}/vendors/${vendor.id}/qr.png`;
 
   return (
     <div className="mx-auto max-w-3xl p-4">
@@ -126,14 +162,18 @@ export default function VendorDetail() {
         />
       )}
 
-      {/* Header row (left-aligned everywhere) */}
-      <div className="flex items-start gap-3">
+      {/* Centered description (display) */}
+      {vendor.description && (
+        <div className="mt-4 text-xl text-center">{vendor.description}</div>
+      )}
+
+      {/* Header row */}
+      <div className="flex items-start gap-3 mt-3">
         {photoUrl && (
           <img
             src={photoUrl}
             alt="Vendor"
             className="w-16 h-16 rounded-xl object-cover border cursor-pointer"
-            onClick={() => setShowPhoto(true)}
             onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
           />
         )}
@@ -144,58 +184,51 @@ export default function VendorDetail() {
             {vendor.contact_phone && <div>{formatPhone(vendor.contact_phone)}</div>}
           </div>
         </div>
-        {vendor.can_edit && (
-          <button
-            onClick={() => setOpenEdit((v) => !v)}
-            className="rounded border px-3 py-1 text-xs"
-          >
-            {openEdit ? "Close" : "Edit"}
-          </button>
-        )}
+        <div className="flex gap-2">
+          <a href={flyerHref} target="_blank" rel="noreferrer" className="rounded border px-4 py-2 text-sm">
+            Download flyer
+          </a>
+          <a href={qrHref} target="_blank" rel="noreferrer" className="rounded border px-4 py-2 text-sm">
+            Open QR
+          </a>
+          {vendor.can_edit && (
+            <button
+              onClick={() => setOpenEdit((v) => !v)}
+              className="rounded border px-4 py-2 text-sm"
+            >
+              {openEdit ? "Close" : "Edit"}
+            </button>
+          )}
+        </div>
       </div>
-
-      {/* Centered description display */}
-      {vendor.description && (
-        <div className="mt-4 text-xl text-center">{vendor.description}</div>
-      )}
 
       {/* Edit panel */}
       {vendor.can_edit && openEdit && (
-        <div className="mt-4 rounded-2xl border p-4 space-y-4">
+        <div className="mt-4 rounded-2xl border p-4 space-y-3">
           <div>
             <label className="block text-xs text-gray-600 mb-1">Vendor name</label>
-            <input
-              className="w-full rounded border p-2 text-sm"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+            <input className="w-full rounded border p-2 text-sm" value={name} onChange={(e)=>setName(e.target.value)} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-600 mb-1">Vendor email</label>
-              <input
-                className="w-full rounded border p-2 text-sm"
-                value={contactEmail}
-                onChange={(e) => setContactEmail(e.target.value)}
-              />
+              <input className="w-full rounded border p-2 text-sm" value={contactEmail} onChange={(e)=>setContactEmail(e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-gray-600 mb-1">Vendor phone</label>
               <input
-                className="w-full rounded border p-2 text-sm font-mono"
-                value={phoneInput}
-                onChange={(e) => setPhoneInput(e.target.value)}
-                placeholder="(555) 123-4567 or +1 555-123-4567"
+                className="w-full rounded border p-2 text-sm"
+                value={contactPhone}
+                onChange={(e)=>setContactPhone(e.target.value)} // let them edit freely; backend normalizes
+                placeholder="(555) 123-4567"
               />
-              <p className="text-[11px] text-gray-500 mt-1">
-                Saved as digits only; formatting shown automatically.
-              </p>
             </div>
           </div>
 
+          {/* Description (DB: description) */}
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Description (site)</label>
+            <label className="block text-xs text-gray-600 mb-1">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -205,39 +238,47 @@ export default function VendorDetail() {
             />
           </div>
 
+          {/* Flyer Text (DB: flyer_text) */}
           <div>
-            <label className="block text-xs text-gray-600 mb-1">
-              Flyer text (used on printable flyer)
-            </label>
+            <label className="block text-xs text-gray-600 mb-1">Flyer text</label>
             <textarea
               value={flyerText}
               onChange={(e) => setFlyerText(e.target.value)}
               rows={3}
               className="w-full rounded border p-2 text-sm"
-              placeholder="Short, punchy text for your flyer…"
+              placeholder="Optional: short blurb to show on the printable flyer"
             />
           </div>
 
+          {/* Images */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-600 mb-1">Banner image</label>
               <input
                 type="file"
-                accept="image/*"
-                onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)}
+                accept="image/*,.heic,.heif"
+                onChange={(e)=>onPickBanner(e.target.files?.[0] ?? null)}
               />
+              {bannerPreview && (
+                <img src={bannerPreview} alt="Banner preview" className="mt-2 max-h-32 rounded border object-contain" />
+              )}
+              {bannerWarn && <div className="text-red-600 text-xs mt-1">{bannerWarn}</div>}
             </div>
             <div>
               <label className="block text-xs text-gray-600 mb-1">Vendor photo</label>
               <input
                 type="file"
-                accept="image/*"
-                onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+                accept="image/*,.heic,.heif"
+                onChange={(e)=>onPickPhoto(e.target.files?.[0] ?? null)}
               />
+              {photoPreview && (
+                <img src={photoPreview} alt="Photo preview" className="mt-2 h-24 w-24 rounded object-cover border" />
+              )}
+              {photoWarn && <div className="text-red-600 text-xs mt-1">{photoWarn}</div>}
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2">
             <button
               onClick={saveEdits}
               disabled={saving}
@@ -245,23 +286,11 @@ export default function VendorDetail() {
             >
               {saving ? "Saving…" : "Save changes"}
             </button>
-            
-
-            <a href={flyerHref} target="_blank" rel="noreferrer" className={buttonClass}>
-              Download flyer
-            </a>
-            <a href={qrHref} target="_blank" rel="noreferrer" className={buttonClass}>
-              Open QR
-            </a>
-            {vendor.can_edit && (
-              <Link to={`/vendors/${vendor.id}/products/new`} className={buttonClass}>
-                Add product
-              </Link>
-            )}           
           </div>
         </div>
       )}
 
+      {/* Products */}
       <h2 className="mt-6 mb-2 text-sm font-semibold text-gray-700">Products</h2>
       <div className="grid grid-cols-1 gap-3">
         {vendor.products?.map((p: any) => (
@@ -276,49 +305,13 @@ export default function VendorDetail() {
           {toast}
         </div>
       )}
-
-      {showPhoto && photoUrl && (
-        <Lightbox imageUrl={photoUrl} onClose={() => setShowPhoto(false)} />
-      )}
     </div>
   );
 }
 
-/** ===== Helpers ===== */
-
-function formatPhone(input: string) {
-  const s = (input ?? "").replace(/\D+/g, "");
-  if (s.length === 11 && s.startsWith("1")) return `(${s.slice(1, 4)}) ${s.slice(4, 7)}-${s.slice(7)}`;
-  if (s.length === 10) return `(${s.slice(0, 3)}) ${s.slice(3, 6)}-${s.slice(6)}`;
-  return input ?? "";
-}
-
-function normalizePhone(input: string) {
-  const s = (input ?? "").trim();
-  if (s.startsWith("+")) return "+" + s.slice(1).replace(/\D+/g, "");
-  return s.replace(/\D+/g, "");
-}
-
-function Lightbox({ imageUrl, onClose }: { imageUrl: string; onClose: () => void }) {
-  useEffect(() => {
-    function onEsc(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
-    window.addEventListener("keydown", onEsc);
-    return () => window.removeEventListener("keydown", onEsc);
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-    >
-      <img
-        src={imageUrl}
-        alt="Vendor"
-        className="max-w-[90vw] max-h-[85vh] rounded-xl shadow"
-        onClick={(e) => e.stopPropagation()}
-      />
-    </div>
-  );
+function formatPhone(digits?: string | null) {
+  const s = (digits ?? "").replace(/\D+/g, "");
+  if (s.length === 11 && s.startsWith("1")) return `(${s.slice(1,4)}) ${s.slice(4,7)}-${s.slice(7)}`;
+  if (s.length === 10) return `(${s.slice(0,3)}) ${s.slice(3,6)}-${s.slice(6)}`;
+  return digits ?? "";
 }

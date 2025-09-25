@@ -6,10 +6,40 @@ use App\Models\Vendor;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 class VendorProductController extends Controller
 {
+    /** Store an image and convert HEIC/HEIF → JPEG when possible. */
+    private function storeImageWithHeicConversion(UploadedFile $file, string $dir): string
+    {
+        $disk = Storage::disk('public');
+        $path = $file->store($dir, 'public');
+
+        $ext = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: pathinfo($path, PATHINFO_EXTENSION));
+        if (in_array($ext, ['heic','heif'], true) && class_exists(\Imagick::class)) {
+            try {
+                $full = $disk->path($path);
+                $img  = new \Imagick($full);
+                if ($img->getNumberImages() > 1) {
+                    $img = $img->coalesceImages();
+                    $img->setIteratorIndex(0);
+                }
+                $img->setImageFormat('jpeg');
+                $img->setImageCompressionQuality(85);
+                $jpegPath = preg_replace('/\.(heic|heif)$/i', '.jpg', $path);
+                $disk->put($jpegPath, $img->getImageBlob());
+                $disk->delete($path);
+                return $jpegPath;
+            } catch (\Throwable $e) {
+                // Optional log
+            }
+        }
+
+        return $path;
+    }
+
     // POST /api/vendors/{vendor}/products
     public function store(Vendor $vendor, Request $request)
     {
@@ -18,18 +48,19 @@ class VendorProductController extends Controller
         $data = $request->validate([
             'name'        => ['required','string','max:255'],
             'description' => ['nullable','string','max:5000'],
-            'unit'        => ['required','string','max:64'], // e.g. "dozen", "lb", "bag"
+            'unit'        => ['required','string','max:64'],
             'active'      => ['nullable','boolean'],
-            'image' => ['nullable','image','max:4096'],
 
-            // optional first variant fields
-            'variant'                 => ['nullable','array'],
-            'variant.sku'             => ['nullable','string','max:64'],
-            'variant.name'            => ['nullable','string','max:255'], // e.g. "12 eggs"
-            'variant.price'           => ['nullable','numeric','min:0'],  // dollars
-            'variant.price_cents'     => ['nullable','integer','min:0'],  // OR cents
-            'variant.currency'        => ['nullable','string','size:3'],
-            'variant.active'          => ['nullable','boolean'],
+            // Accept HEIC/HEIF and common formats
+            'image'       => ['nullable','file','max:4096','mimes:jpeg,jpg,png,gif,webp,heic,heif'],
+
+            // Single-variant (required) – dollars only (we normalize to cents)
+            'variant'             => ['required','array'],
+            'variant.sku'         => ['nullable','string','max:64'],
+            'variant.name'        => ['nullable','string','max:255'],
+            'variant.price'       => ['required','numeric','min:0'],
+            'variant.currency'    => ['nullable','string','size:3'],
+            'variant.active'      => ['nullable','boolean'],
         ]);
 
         $product = Product::create([
@@ -39,29 +70,27 @@ class VendorProductController extends Controller
             'unit'        => $data['unit'],
             'active'      => (bool)($data['active'] ?? true),
         ]);
+
         if ($request->hasFile('image')) {
-            $path = $request->file('image')->store("vendors/{$vendor->id}/products", 'public');
-            $product->image_path = $path;
+            $product->image_path = $this->storeImageWithHeicConversion(
+                $request->file('image'),
+                "vendors/{$vendor->id}/products"
+            );
             $product->save();
         }
-        // Optional first variant
-        if (!empty($data['variant'])) {
-            $v = $data['variant'];
 
-            // prefer price_cents if provided, else convert price dollars -> cents
-            $cents = isset($v['price_cents'])
-                ? (int)$v['price_cents']
-                : (isset($v['price']) ? (int) round($v['price'] * 100) : null);
+        // Required single variant: dollars → cents
+        $v      = $data['variant'];
+        $cents  = (int) round(($v['price'] ?? 0) * 100);
 
-            ProductVariant::create([
-                'product_id'  => $product->id,
-                'sku'         => $v['sku'] ?? null,
-                'name'        => $v['name'] ?? $product->unit,
-                'price_cents' => $cents ?? 0,
-                'currency'    => strtoupper($v['currency'] ?? 'USD'),
-                'active'      => (bool)($v['active'] ?? true),
-            ]);
-        }
+        ProductVariant::create([
+            'product_id'  => $product->id,
+            'sku'         => $v['sku'] ?? null,
+            'name'        => $v['name'] ?? $product->unit,
+            'price_cents' => $cents,
+            'currency'    => strtoupper($v['currency'] ?? 'USD'),
+            'active'      => (bool)($v['active'] ?? true),
+        ]);
 
         $product->load(['variants' => fn($q) => $q->orderBy('id')]);
 
@@ -88,22 +117,26 @@ class VendorProductController extends Controller
 
         return response()->json($product->fresh());
     }
-    
+
+    // POST /api/vendors/{vendor}/products/{product}/image
     public function uploadImage(Vendor $vendor, Product $product, Request $request)
     {
         $this->authorize('update', $vendor);
+
         if ($product->vendor_id !== $vendor->id) {
             return response()->json(['message' => 'Product does not belong to this vendor'], 404);
         }
 
-        $data = $request->validate([
-            'image' => ['required','image','max:4096'],
+        $request->validate([
+            'image' => ['required','file','max:4096','mimes:jpeg,jpg,png,gif,webp,heic,heif'],
         ]);
 
-        $path = $request->file('image')->store("vendors/{$vendor->id}/products", 'public');
-        $product->image_path = $path;
+        $product->image_path = $this->storeImageWithHeicConversion(
+            $request->file('image'),
+            "vendors/{$vendor->id}/products"
+        );
         $product->save();
 
         return response()->json($product->fresh());
-    }    
+    }
 }

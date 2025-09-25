@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Vendor;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
@@ -14,9 +15,7 @@ class VendorMediaController extends Controller
 {
     use AuthorizesRequests;
 
-    // -----------------------------------------
-    // Helpers
-    // -----------------------------------------
+    /* ----------------------------- Helpers ----------------------------- */
 
     /** Pretty-print US phone numbers like (555) 123-4567 (simple, US-centric). */
     private function prettyPhone(?string $digits): ?string
@@ -33,27 +32,67 @@ class VendorMediaController extends Controller
     }
 
     /**
-     * Turn a stored path (or URL pointing into /storage) into [mime, base64].
-     * Tries 1) storage disk ('public'), 2) public/storage symlink path, 3) URL→local resolve.
+     * Store an image under /storage/app/public/$dir and, if it’s HEIC/HEIF,
+     * try converting it to JPEG (keeping the same relative path but .jpg).
+     * Returns the relative path under the public disk.
+     */
+    private function storeImageWithHeicConversion(UploadedFile $file, string $dir): string
+    {
+        $disk = Storage::disk('public');
+
+        // Store original upload first
+        $path = $file->store($dir, 'public');
+
+        // Detect extension
+        $ext = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: pathinfo($path, PATHINFO_EXTENSION));
+
+        // If HEIC/HEIF, try converting to JPEG via Imagick (if available)
+        if (in_array($ext, ['heic', 'heif'], true) && class_exists(\Imagick::class)) {
+            try {
+                $full = $disk->path($path);
+                $img  = new \Imagick($full);
+                // Some HEICs are multi-frame; flatten to first
+                if ($img->getNumberImages() > 1) {
+                    $img = $img->coalesceImages();
+                    $img->setIteratorIndex(0);
+                }
+                $img->setImageFormat('jpeg');
+                $img->setImageCompressionQuality(85);
+
+                $jpegPath = preg_replace('/\.(heic|heif)$/i', '.jpg', $path);
+                $disk->put($jpegPath, $img->getImageBlob());
+
+                // Remove original HEIC
+                $disk->delete($path);
+
+                return $jpegPath;
+            } catch (\Throwable $e) {
+                // If conversion fails, keep original file as-is
+                // (Optional) You could log the error: \Log::warning('HEIC convert failed: '.$e->getMessage());
+            }
+        }
+
+        return $path;
+    }
+
+    /**
+     * Convert a storage path (or URL into /storage) to [mime, base64].
      */
     private function pathToBase64(?string $path): array
     {
         if (!$path) return [null, null];
 
-        // 1) Try storage disk path like "vendors/1/file.jpg"
+        // 1) public disk
         if (Storage::disk('public')->exists($path)) {
             $bin  = Storage::disk('public')->get($path);
             $mime = Storage::disk('public')->mimeType($path) ?? 'image/jpeg';
             return [$mime, base64_encode($bin)];
         }
 
-        // 2) Try local public "storage/..." symlink path
-        $candidate = $path;
-        if (Str::startsWith($candidate, '/')) {
-            $candidate = ltrim($candidate, '/'); // e.g. "storage/vendors/1/file.jpg"
-        }
+        // 2) local "public/storage/..." symlink path
+        $candidate = ltrim((string) $path, '/');
         if (Str::startsWith($candidate, 'storage/')) {
-            $full = public_path($candidate); // follows the "public/storage" symlink
+            $full = public_path($candidate);
             if (is_file($full)) {
                 $bin  = @file_get_contents($full);
                 if ($bin !== false) {
@@ -63,10 +102,9 @@ class VendorMediaController extends Controller
             }
         }
 
-        // 3) If it's a full URL that points to /storage/... try resolving to local file
+        // 3) full URL pointing to /storage/...
         if (filter_var($path, FILTER_VALIDATE_URL)) {
-            $urlPath = parse_url($path, PHP_URL_PATH) ?: '';
-            $urlPath = ltrim($urlPath, '/'); // e.g. "storage/vendors/1/file.jpg"
+            $urlPath = ltrim(parse_url($path, PHP_URL_PATH) ?: '', '/');
             if (Str::startsWith($urlPath, 'storage/')) {
                 $full = public_path($urlPath);
                 if (is_file($full)) {
@@ -82,9 +120,7 @@ class VendorMediaController extends Controller
         return [null, null];
     }
 
-    // -----------------------------------------
-    // Upload/edit vendor assets & fields
-    // -----------------------------------------
+    /* --------------------- Upload/edit vendor assets -------------------- */
 
     // POST /api/vendors/{vendor}/assets (multipart)
     public function upload(Vendor $vendor, Request $request)
@@ -97,33 +133,38 @@ class VendorMediaController extends Controller
             'contact_phone' => ['nullable','string','max:32'],
             'flyer_text'    => ['nullable','string','max:5000'],
             'description'   => ['nullable','string','max:5000'],
-            'banner'        => ['nullable','image','max:4096'],
-            'photo'         => ['nullable','image','max:4096'],
+
+            // Accept common web formats + HEIC/HEIF (we’ll convert those)
+            'banner'        => ['nullable','file','max:4096','mimes:jpeg,jpg,png,gif,webp,heic,heif'],
+            'photo'         => ['nullable','file','max:4096','mimes:jpeg,jpg,png,gif,webp,heic,heif'],
         ]);
 
         if ($request->hasFile('banner')) {
-            $path = $request->file('banner')->store("vendors/{$vendor->id}", 'public');
-            $vendor->banner_path = $path;
+            $vendor->banner_path = $this->storeImageWithHeicConversion(
+                $request->file('banner'),
+                "vendors/{$vendor->id}"
+            );
         }
+
         if ($request->hasFile('photo')) {
-            $path = $request->file('photo')->store("vendors/{$vendor->id}", 'public');
-            $vendor->photo_path = $path;
+            $vendor->photo_path = $this->storeImageWithHeicConversion(
+                $request->file('photo'),
+                "vendors/{$vendor->id}"
+            );
         }
 
         if (array_key_exists('name', $data))          $vendor->name = $data['name'];
         if (array_key_exists('contact_email', $data)) $vendor->contact_email = $data['contact_email'];
         if (array_key_exists('contact_phone', $data)) $vendor->contact_phone = preg_replace('/\D+/', '', $data['contact_phone'] ?? '');
         if (array_key_exists('description', $data))   $vendor->description = $data['description'];
-        if (array_key_exists('flyer_text', $data))   $vendor->flyer_text = $data['flyer_text'];
+        if (array_key_exists('flyer_text', $data))    $vendor->flyer_text = $data['flyer_text'];
 
         $vendor->save();
 
         return response()->json($vendor->fresh());
     }
 
-    // -----------------------------------------
-    // QR code (public)
-    // -----------------------------------------
+    /* ------------------------------- QR PNG ------------------------------ */
 
     // GET /api/vendors/{vendor}/qr.png
     public function qr(Vendor $vendor)
@@ -139,9 +180,7 @@ class VendorMediaController extends Controller
         ]);
     }
 
-    // -----------------------------------------
-    // Flyer PDF (public)
-    // -----------------------------------------
+    /* ----------------------------- Flyer PDF ----------------------------- */
 
     // GET /api/vendors/{vendor}/flyer.pdf
     public function flyer(Vendor $vendor)
@@ -149,15 +188,13 @@ class VendorMediaController extends Controller
         $appBase = config('app.frontend_url', env('APP_FRONTEND_URL', 'https://fmsubapp.fbwks.com'));
         $landing = rtrim($appBase, '/') . "/vendors/{$vendor->id}";
 
-        // Build inline images (3-option resolver for banner/photo)
         [$bannerMime, $bannerB64] = $this->pathToBase64($vendor->banner_path);
         [$photoMime,  $photoB64]  = $this->pathToBase64($vendor->photo_path);
 
-        // QR always inline
         $qrB64  = base64_encode(QrCode::format('png')->size(240)->margin(1)->generate($landing));
         $qrMime = 'image/png';
 
-        // Products (you said remove from flyer—left here in case view still expects it)
+        // Products omitted from flyer; kept for compatibility if the view reads it
         $products = $vendor->products()
             ->where('active', true)
             ->with(['variants' => fn ($q) => $q->where('active', true)])
@@ -169,7 +206,6 @@ class VendorMediaController extends Controller
                 'products'     => $products,
                 'landing'      => $landing,
 
-                // inline images + types
                 'bannerMime'   => $bannerMime,
                 'bannerB64'    => $bannerB64,
                 'photoMime'    => $photoMime,
@@ -177,7 +213,6 @@ class VendorMediaController extends Controller
                 'qrMime'       => $qrMime,
                 'qrB64'        => $qrB64,
 
-                // optional: prettified phone if the blade uses it
                 'prettyPhone'  => $this->prettyPhone($vendor->contact_phone),
             ])
             ->setPaper('letter', 'portrait')

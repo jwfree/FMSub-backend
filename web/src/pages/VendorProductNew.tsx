@@ -1,206 +1,200 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+// web/src/pages/VendorProductNew.tsx
+import { useEffect, useState, useRef } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
+import { ensureJpeg } from "../lib/convertHeic";
 
-// Reuse a lightweight Vendor shape
-type Vendor = { id: number; name: string; can_edit?: boolean };
+type VendorSummary = { id: number; name: string };
 
 export default function VendorProductNew() {
   const { id } = useParams(); // vendor id
   const navigate = useNavigate();
 
-  const [vendor, setVendor] = useState<Vendor | null>(null);
+  const [vendor, setVendor] = useState<VendorSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // form
+  // fields
   const [name, setName] = useState("");
-  const [unit, setUnit] = useState("");
   const [description, setDescription] = useState("");
+  const [unit, setUnit] = useState("");
+  const [active, setActive] = useState(true);
 
+  // first variant
   const [sku, setSku] = useState("");
   const [variantName, setVariantName] = useState("");
-  const [price, setPrice] = useState<string>(""); // dollars string
-  const [creating, setCreating] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [price, setPrice] = useState<string>(""); // dollars (string)
+  const [currency, setCurrency] = useState("USD");
+  const [variantActive, setVariantActive] = useState(true);
 
+  // image
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageWarn, setImageWarn] = useState<string | null>(null);
+  const objectUrls = useRef<string[]>([]);
 
   useEffect(() => {
-    let cancelled = false;
+    let cancel = false;
     setLoading(true);
     api.get(`/vendors/${id}?with=none`)
-      .then((r) => {
-        if (cancelled) return;
-        setVendor(r.data);
+      .then(r => {
+        if (cancel) return;
+        setVendor({ id: r.data.id, name: r.data.name });
       })
-      .catch((e) => !cancelled && setErr(e?.response?.data?.message || e.message))
-      .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
+      .catch(e => !cancel && setErr(e?.response?.data?.message || e.message))
+      .finally(() => !cancel && setLoading(false));
+    return () => { cancel = true; };
   }, [id]);
 
-  const canEdit = vendor?.can_edit === true;
+  useEffect(() => {
+    return () => {
+      objectUrls.current.forEach((u) => URL.revokeObjectURL(u));
+      objectUrls.current = [];
+    };
+  }, []);
 
-    async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function onPickImage(f?: File | null) {
+    setImageWarn(null);
+    setImagePreview(null);
+    setImageFile(null);
+    if (!f) return;
+    const { file, previewUrl, warning } = await ensureJpeg(f, {
+      quality: 0.9,
+      maxWidth: 3000,
+      maxHeight: 3000,
+      maxSizeMB: 8,
+    });
+    objectUrls.current.push(previewUrl);
+    setImageFile(file);
+    setImagePreview(previewUrl);
+    setImageWarn(warning || null);
+  }
+
+  async function submit() {
     if (!vendor) return;
-    setCreating(true); setErr(null);
+
+    // build form-data (server expects one format; we’re using multipart with nested keys)
+    const fd = new FormData();
+    fd.append("name", name);
+    if (description) fd.append("description", description);
+    fd.append("unit", unit || "unit");
+    fd.append("active", active ? "1" : "0");
+
+    // first variant — send cents only
+    const cents = price.trim() ? Math.round(parseFloat(price) * 100) : 0;
+    fd.append("variant[sku]", sku);
+    fd.append("variant[name]", variantName || unit || "unit");
+    fd.append("variant[price_cents]", String(cents));
+    fd.append("variant[currency]", currency || "USD");
+    fd.append("variant[active]", variantActive ? "1" : "0");
+
+    if (imageFile) fd.append("image", imageFile);
+
     try {
-        if (imageFile) {
-        // multipart
-        const fd = new FormData();
-        fd.append("name", name);
-        fd.append("unit", unit);
-        if (description) fd.append("description", description);
-        // variant (serialize simply; backend expects nested keys)
-        if (sku || variantName || price) {
-            if (sku) fd.append("variant[sku]", sku);
-            if (variantName) fd.append("variant[name]", variantName);
-            if (price) fd.append("variant[price]", String(parseFloat(price)));
-            fd.append("variant[currency]", "USD");
-        }
-        fd.append("image", imageFile);
-
-        await api.post(`/vendors/${vendor.id}/products`, fd, {
-            headers: { "Content-Type": "multipart/form-data" },
-        });
-        } else {
-        // JSON
-        const payload: any = { name, unit, description: description || null };
-        if (sku || variantName || price) {
-            payload.variant = {
-            sku: sku || null,
-            name: variantName || null,
-            price: price ? parseFloat(price) : null,
-            currency: "USD",
-            };
-        }
-        await api.post(`/vendors/${vendor.id}/products`, payload);
-        }
-
-        setToast("Product created");
-        setTimeout(() => setToast(null), 1200);
-        navigate(`/vendors/${vendor.id}`, { replace: true });
+      await api.post(`/vendors/${vendor.id}/products`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      navigate(`/vendors/${vendor.id}`);
     } catch (e: any) {
-        setErr(e?.response?.data?.message || "Create failed");
-    } finally {
-        setCreating(false);
+      setErr(e?.response?.data?.message || "Create failed");
     }
-    }
+  }
 
   if (loading) return <div className="p-4">Loading…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
-  if (!vendor) return <div className="p-4">Vendor not found.</div>;
-  if (!canEdit) return <div className="p-4">You don’t have permission to add products for this vendor.</div>;
+  if (!vendor) return <div className="p-4">Not found</div>;
 
   return (
     <div className="mx-auto max-w-3xl p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-lg font-semibold">New product for {vendor.name}</h1>
-        <Link to={`/vendors/${vendor.id}`} className="text-sm underline">Back to vendor</Link>
+      <div className="flex items-center justify-between mb-3">
+        <h1 className="text-xl font-semibold">Add product</h1>
+        <Link className="text-sm underline" to={`/vendors/${vendor.id}`}>Back to vendor</Link>
       </div>
-
-      <form onSubmit={submit} className="space-y-4 rounded-2xl border bg-white p-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs text-gray-600 mb-1">Name</label>
-            <input
-              required
-              className="w-full rounded border p-2 text-sm"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Farm Fresh Eggs"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-600 mb-1">Unit</label>
-            <input
-              required
-              className="w-full rounded border p-2 text-sm"
-              value={unit}
-              onChange={(e) => setUnit(e.target.value)}
-              placeholder="e.g. dozen, lb, bag"
-            />
-          </div>
+      <div className="rounded-2xl border p-4 space-y-4">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Product name</label>
+          <input className="w-full rounded border p-2 text-sm" value={name} onChange={(e)=>setName(e.target.value)} />
         </div>
 
         <div>
           <label className="block text-xs text-gray-600 mb-1">Description</label>
-          <textarea
-            rows={3}
-            className="w-full rounded border p-2 text-sm"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Optional details about the product…"
-          />
+          <textarea className="w-full rounded border p-2 text-sm" rows={3} value={description} onChange={(e)=>setDescription(e.target.value)} />
         </div>
 
-        <div className="border-t pt-3">
-          <div className="text-sm font-medium mb-2">First variant (optional)</div>
-        <div className="border-t pt-3">
-        <div className="text-sm font-medium mb-2">Product image (optional)</div>
-        <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-            const f = e.target.files?.[0] || null;
-            setImageFile(f);
-            setImagePreview(f ? URL.createObjectURL(f) : null);
-            }}
-        />
-        {imagePreview && (
-            <img
-            src={imagePreview}
-            alt="Preview"
-            className="mt-2 w-32 h-32 rounded object-cover border"
-            onLoad={() => imagePreview && URL.revokeObjectURL(imagePreview)}
-            />
-        )}
-        </div>          
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs text-gray-600 mb-1">SKU</label>
-              <input className="w-full rounded border p-2 text-sm" value={sku} onChange={(e) => setSku(e.target.value)} placeholder="EGG-12" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-600 mb-1">Variant name</label>
-              <input className="w-full rounded border p-2 text-sm" value={variantName} onChange={(e) => setVariantName(e.target.value)} placeholder="12 eggs" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-600 mb-1">Price (USD)</label>
-              <input
-                inputMode="decimal"
-                className="w-full rounded border p-2 text-sm"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                placeholder="5.00"
-              />
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Unit</label>
+            <input className="w-full rounded border p-2 text-sm" value={unit} onChange={(e)=>setUnit(e.target.value)} placeholder="e.g. dozen, lb, bag" />
+          </div>
+          <div className="flex items-end">
+            <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+              <input type="checkbox" className="rounded" checked={active} onChange={(e)=>setActive(e.target.checked)} />
+              Active
+            </label>
           </div>
         </div>
 
-        {err && <p className="text-xs text-red-600">{err}</p>}
+        <hr />
+
+        <div className="font-medium text-sm">First variant</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">SKU</label>
+            <input className="w-full rounded border p-2 text-sm" value={sku} onChange={(e)=>setSku(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Variant name</label>
+            <input className="w-full rounded border p-2 text-sm" value={variantName} onChange={(e)=>setVariantName(e.target.value)} placeholder="e.g. 12 eggs" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Price (USD)</label>
+            <input
+              className="w-full rounded border p-2 text-sm"
+              inputMode="decimal"
+              value={price}
+              onChange={(e)=>setPrice(e.target.value)}
+              placeholder="e.g. 5.00"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Currency</label>
+            <input className="w-full rounded border p-2 text-sm" value={currency} onChange={(e)=>setCurrency(e.target.value.toUpperCase())} />
+          </div>
+          <div className="flex items-end">
+            <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+              <input type="checkbox" className="rounded" checked={variantActive} onChange={(e)=>setVariantActive(e.target.checked)} />
+              Active
+            </label>
+          </div>
+        </div>
+
+        <hr />
+
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Product image</label>
+          <input
+            type="file"
+            accept="image/*,.heic,.heif"
+            onChange={(e)=>onPickImage(e.target.files?.[0] ?? null)}
+          />
+          {imagePreview && (
+            <img src={imagePreview} alt="Preview" className="mt-2 h-24 w-24 rounded object-cover border" />
+          )}
+          {imageWarn && <div className="text-red-600 text-xs mt-1">{imageWarn}</div>}
+        </div>
 
         <div className="flex gap-2">
           <button
-            type="submit"
-            disabled={creating}
-            className="rounded bg-black text-white px-4 py-2 text-sm disabled:opacity-60"
+            onClick={submit}
+            className="rounded bg-black text-white px-4 py-2 text-sm"
           >
-            {creating ? "Creating…" : "Create product"}
+            Create product
           </button>
-          <Link to={`/vendors/${vendor.id}`} className="rounded border px-4 py-2 text-sm">
-            Cancel
-          </Link>
+          <Link to={`/vendors/${vendor.id}`} className="rounded border px-4 py-2 text-sm">Cancel</Link>
         </div>
-      </form>
-
-      {toast && (
-        <div className="fixed top-3 left-1/2 -translate-x-1/2 rounded bg-black/80 text-white text-xs px-3 py-2">
-          {toast}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
