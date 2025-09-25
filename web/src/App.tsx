@@ -81,13 +81,13 @@ function Header({ me, onLogout }: { me: Me | null; onLogout: () => Promise<void>
   return (
     <header className="sticky top-0 z-10 bg-white border-b">
       <div className="mx-auto max-w-3xl px-4 py-3 flex items-center justify-between">
-        <Link to="/browse" className="font-semibold tracking-tight">FMSub</Link>
+        <Link to="/browse" className="font-semibold tracking-tight">Farmer's Market Reserve</Link>
         <nav className="flex items-center gap-4 text-sm">
           <Link className="underline" to="/browse">Browse</Link>
           {me && !hasVendor && <Link className="underline" to="/vendor/new">Become a vendor</Link>}
           {me ? (
             <div className="flex items-center gap-3">
-              <Link className="underline" to="/subs">My Subs</Link>
+              <Link className="underline" to="/subscriptions">My Orders</Link>
               <Link className="underline hidden sm:inline" to="/account">Account</Link>
               <button onClick={handleLogout} className="rounded px-3 py-1 border text-xs hover:bg-gray-50">Logout</button>
             </div>
