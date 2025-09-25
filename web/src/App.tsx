@@ -9,6 +9,7 @@ import Account from "./pages/Account";
 import VendorManage from "./pages/VendorManage";
 import VendorNew from "./pages/VendorNew";
 import VendorProductNew from "./pages/VendorProductNew";
+import VendorProductEdit from "./pages/VendorProductEdit";
 
 type Me = { id: number; name: string; email: string };
 
@@ -211,10 +212,11 @@ export default function App() {
         <Route path="/vendors/:id" element={<VendorDetail />} />
         <Route path="/subscriptions" element={<MySubscriptions />} />
         <Route path="/account" element={<Account />} />
-        <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
         <Route path="/vendor/manage" element={<VendorManage />} />
         <Route path="/vendor/new" element={<VendorNew />} />
         <Route path="/vendors/:id/products/new" element={<VendorProductNew />} />
+        <Route path="/vendors/:vendorId/products/:productId/edit" element={<VendorProductEdit />} />
+        <Route path="*" element={<div className="p-6 text-sm text-gray-600">Page not found.</div>} />
       </Routes>
     </Shell>
   );

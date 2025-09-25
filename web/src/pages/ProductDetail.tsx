@@ -1,6 +1,8 @@
+// web/src/pages/ProductDetail.tsx
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../lib/api";
+import Lightbox from "../components/Lightbox";
 
 type Variant = {
   id: number;
@@ -13,10 +15,11 @@ type Variant = {
 type Product = {
   id: number;
   name: string;
-  description?: string;
+  description?: string | null;
   is_active: boolean;
   vendor?: { id: number; name: string };
   variants: Variant[];
+  image_url?: string | null; // <-- show this if present
 };
 
 export default function ProductDetail() {
@@ -27,15 +30,20 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // form state expected by your SubscriptionsController@store
+  // subscribe form
   const [variantId, setVariantId] = useState<number | "">("");
-  const [frequency, setFrequency] = useState<"weekly" | "biweekly" | "monthly">("weekly");
+  const [frequency, setFrequency] =
+    useState<"weekly" | "biweekly" | "monthly">("weekly");
   const [startDate, setStartDate] = useState<string>(
     () => new Date().toISOString().slice(0, 10)
   );
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  // lightbox for product image
+  const [showImg, setShowImg] = useState(false);
+  const [imgHidden, setImgHidden] = useState(false); // if load fails, hide <img>
 
   useEffect(() => {
     let cancelled = false;
@@ -69,12 +77,11 @@ export default function ProductDetail() {
       setToast("Subscription created!");
       navigate("/subscriptions");
       setTimeout(() => setToast(null), 1500);
-      // later: navigate('/subscriptions') once that page exists
     } catch (e: any) {
-        if (e?.response?.status === 401) {
-            window.location.href = `/account?next=/products/${id}`;
-            return;
-        }
+      if (e?.response?.status === 401) {
+        window.location.href = `/account?next=/products/${id}`;
+        return;
+      }
       setToast(e?.response?.data?.message || "Failed to create subscription");
       setTimeout(() => setToast(null), 2000);
     } finally {
@@ -93,17 +100,33 @@ export default function ProductDetail() {
         &larr; Back
       </button>
 
-      <h1 className="text-xl font-semibold mt-2">{product.name}</h1>
+      {/* Image up top */}
+      {product.image_url && !imgHidden && (
+        <div className="mt-3">
+          <img
+            src={product.image_url}
+            alt={product.name}
+            className="w-full max-h-80 rounded-2xl object-cover border cursor-zoom-in"
+            onClick={() => setShowImg(true)}
+            onError={() => setImgHidden(true)}
+          />
+        </div>
+      )}
+
+      <h1 className="text-xl font-semibold mt-3">{product.name}</h1>
       {product.vendor?.name && (
         <div className="text-sm text-gray-600">{product.vendor.name}</div>
       )}
       {Number.isFinite(minPrice) && (
-        <div className="mt-1 text-sm font-semibold">${(minPrice / 100).toFixed(2)}+</div>
+        <div className="mt-1 text-sm font-semibold">
+          ${(minPrice / 100).toFixed(2)}+
+        </div>
       )}
       {product.description && (
         <p className="mt-3 text-gray-700">{product.description}</p>
       )}
 
+      {/* Subscribe box */}
       <div className="mt-6 space-y-3 rounded-xl border p-4">
         <div className="text-sm font-medium">Choose an option</div>
         <select
@@ -162,11 +185,24 @@ export default function ProductDetail() {
         </button>
       </div>
 
+      {/* Toast */}
       {toast && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 rounded-lg bg-black/80 px-3 py-2 text-xs text-white">
           {toast}
         </div>
       )}
+
+      {/* Lightbox */}
+      <Lightbox open={showImg} onClose={() => setShowImg(false)}>
+        {product.image_url && (
+          <img
+            src={product.image_url}
+            alt={product.name}
+            className="max-h-[90vh] max-w-[90vw] object-contain rounded"
+            onClick={() => setShowImg(false)}
+          />
+        )}
+      </Lightbox>
     </div>
   );
 }

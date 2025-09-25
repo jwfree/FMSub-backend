@@ -15,14 +15,15 @@ export type Product = {
   vendor?: { id: number; name: string };
   variants?: ProductVariant[];
   image_url?: string | null;
-  is_active?: boolean;
+  active?: boolean;          // backend uses `active`
+  is_active?: boolean;       // tolerate older shape
 };
 
 type Props = {
   product: Product;
   /** Path to link to (defaults to /products/:id). Pass null to render as a non-link card. */
   to?: string | null;
-  /** Optional actions area displayed bottom-right (e.g. edit/delete buttons). */
+  /** Optional actions area displayed bottom-right (e.g. edit/delete/pause buttons). */
   actions?: React.ReactNode;
 };
 
@@ -38,6 +39,8 @@ export default function ProductCard({ product, to, actions }: Props) {
       )[0]
     : undefined;
 
+  const href = to ?? `/products/${product.id}`;
+
   const CardShell: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     to === null ? (
       <div className="block w-full text-left rounded-2xl shadow p-4 bg-white">
@@ -45,7 +48,7 @@ export default function ProductCard({ product, to, actions }: Props) {
       </div>
     ) : (
       <Link
-        to={to ?? `/products/${product.id}`}
+        to={href}
         className="block w-full text-left rounded-2xl shadow p-4 bg-white hover:shadow-md transition"
       >
         {children}
@@ -61,13 +64,18 @@ export default function ProductCard({ product, to, actions }: Props) {
               src={product.image_url}
               alt={product.name}
               className="w-14 h-14 rounded object-cover border"
-              onError={(e) =>
-                ((e.currentTarget as HTMLImageElement).style.display = "none")
-              }
+              onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
             />
           )}
           <div>
-            <h3 className="text-base font-semibold">{product.name}</h3>
+            <h3 className="text-base font-semibold">
+              {product.name}
+              {!(product.active ?? product.is_active ?? true) && (
+                <span className="ml-2 text-xs rounded bg-gray-200 px-1.5 py-0.5 align-middle">
+                  inactive
+                </span>
+              )}
+            </h3>
             {product.vendor && (
               <div className="text-xs text-gray-600 mt-0.5">
                 {product.vendor.name}
@@ -84,9 +92,7 @@ export default function ProductCard({ product, to, actions }: Props) {
       </div>
 
       {product.description && (
-        <p className="text-sm text-gray-700 mt-2 line-clamp-2">
-          {product.description}
-        </p>
+        <p className="text-sm text-gray-700 mt-2 line-clamp-2">{product.description}</p>
       )}
 
       {actions && (

@@ -7,18 +7,39 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 
 class VendorProductController extends Controller
 {
+    use AuthorizesRequests;
+
+    /** Generate a compact unique SKU if none supplied (fits in 64 chars). */
+    private function makeSku(Vendor $vendor, Product $product, ?string $hint = null): string
+    {
+        $prefix = 'V'.$vendor->id.'P'.$product->id;
+        // short random suffix (12 hex chars)
+        $rand = substr(bin2hex(random_bytes(6)), 0, 12);
+        // Optional human-ish hint (letters/numbers only)
+        $base = preg_replace('/[^A-Za-z0-9]+/', '', (string)$hint) ?: '';
+        $sku  = strtoupper($prefix.($base ? '-'.$base : '').'-'.$rand);
+        return substr($sku, 0, 64);
+    }
+
     /** Store an image and convert HEIC/HEIF → JPEG when possible. */
     private function storeImageWithHeicConversion(UploadedFile $file, string $dir): string
     {
         $disk = Storage::disk('public');
         $path = $file->store($dir, 'public');
 
-        $ext = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: pathinfo($path, PATHINFO_EXTENSION));
-        if (in_array($ext, ['heic','heif'], true) && class_exists(\Imagick::class)) {
+        $ext = strtolower(
+            $file->getClientOriginalExtension()
+                ?: $file->extension()
+                ?: pathinfo($path, PATHINFO_EXTENSION)
+        );
+
+        if (in_array($ext, ['heic','heif'], true) && \class_exists(\Imagick::class, false)) {
             try {
                 $full = $disk->path($path);
                 $img  = new \Imagick($full);
@@ -28,12 +49,13 @@ class VendorProductController extends Controller
                 }
                 $img->setImageFormat('jpeg');
                 $img->setImageCompressionQuality(85);
+
                 $jpegPath = preg_replace('/\.(heic|heif)$/i', '.jpg', $path);
                 $disk->put($jpegPath, $img->getImageBlob());
                 $disk->delete($path);
                 return $jpegPath;
             } catch (\Throwable $e) {
-                // optionally log: \Log::warning('HEIC convert failed', ['e'=>$e->getMessage()]);
+                // \Log::warning('HEIC convert failed', ['error' => $e->getMessage()]);
             }
         }
 
@@ -51,51 +73,58 @@ class VendorProductController extends Controller
             'unit'        => ['required','string','max:64'],
             'active'      => ['nullable','boolean'],
 
-            // allow HEIC uploads
             'image'       => ['nullable','file','max:4096','mimes:jpeg,jpg,png,gif,webp,heic,heif'],
 
-            // single variant (cents only)
-            'variant'                => ['required','array'],
-            'variant.sku'            => ['nullable','string','max:64'],
-            'variant.name'           => ['nullable','string','max:255'],
-            'variant.price_cents'    => ['required','integer','min:0'],
-            'variant.currency'       => ['nullable','string','size:3'],
-            'variant.active'         => ['nullable','boolean'],
+            'variant'             => ['required','array'],
+            'variant.sku'         => ['nullable','string','max:64'],
+            'variant.name'        => ['nullable','string','max:255'],
+            'variant.price_cents' => ['required','integer','min:0'],
+            'variant.currency'    => ['nullable','string','size:3'],
+            'variant.active'      => ['nullable','boolean'],
         ]);
 
-        $product = Product::create([
-            'vendor_id'   => $vendor->id,
-            'name'        => $data['name'],
-            'description' => $data['description'] ?? null,
-            'unit'        => $data['unit'],
-            'active'      => (bool)($data['active'] ?? true),
-        ]);
+        return DB::transaction(function () use ($vendor, $request, $data) {
+            $product = Product::create([
+                'vendor_id'   => $vendor->id,
+                'name'        => $data['name'],
+                'description' => $data['description'] ?? null,
+                'unit'        => $data['unit'],
+                'active'      => (bool)($data['active'] ?? true),
+            ]);
 
-        if ($request->hasFile('image')) {
-            $product->image_path = $this->storeImageWithHeicConversion(
-                $request->file('image'),
-                "vendors/{$vendor->id}/products"
+            if ($request->hasFile('image')) {
+                $product->image_path = $this->storeImageWithHeicConversion(
+                    $request->file('image'),
+                    "vendors/{$vendor->id}/products"
+                );
+                $product->save();
+            }
+
+            $v   = $data['variant'];
+            $sku = $v['sku'] ?? ''; // may be blank
+            if ($sku === '' || $sku === null) {
+                // Use product name or variant name as hint
+                $hint = $v['name'] ?? $product->name ?? null;
+                $sku  = $this->makeSku($vendor, $product, $hint);
+            }
+
+            ProductVariant::create([
+                'product_id'  => $product->id,
+                'sku'         => $sku, // never null
+                'name'        => $v['name'] ?? $product->unit,
+                'price_cents' => (int) $v['price_cents'],
+                'currency'    => strtoupper($v['currency'] ?? 'USD'),
+                'active'      => (bool)($v['active'] ?? true),
+            ]);
+
+            return response()->json(
+                $product->load(['variants' => fn($q) => $q->orderBy('id')]),
+                201
             );
-            $product->save();
-        }
-
-        $v = $data['variant'];
-
-        ProductVariant::create([
-            'product_id'  => $product->id,
-            'sku'         => $v['sku'] ?? null,
-            'name'        => $v['name'] ?? $product->unit,
-            'price_cents' => (int) $v['price_cents'],
-            'currency'    => strtoupper($v['currency'] ?? 'USD'),
-            'active'      => (bool)($v['active'] ?? true),
-        ]);
-
-        $product->load(['variants' => fn($q) => $q->orderBy('id')]);
-
-        return response()->json($product, 201);
+        });
     }
 
-    // PUT /api/vendors/{vendor}/products/{product}
+    // PUT/PATCH /api/vendors/{vendor}/products/{product}
     public function update(Vendor $vendor, Product $product, Request $request)
     {
         $this->authorize('update', $vendor);
@@ -116,6 +145,24 @@ class VendorProductController extends Controller
         return response()->json($product->fresh());
     }
 
+    // DELETE /api/vendors/{vendor}/products/{product}
+    public function destroy(Vendor $vendor, Product $product)
+    {
+        $this->authorize('update', $vendor);
+
+        if ($product->vendor_id !== $vendor->id) {
+            return response()->json(['message' => 'Product does not belong to this vendor'], 404);
+        }
+
+        $oldImage = $product->image_path;
+        $product->delete();
+        if ($oldImage) {
+            Storage::disk('public')->delete($oldImage);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
     // POST /api/vendors/{vendor}/products/{product}/image
     public function uploadImage(Vendor $vendor, Product $product, Request $request)
     {
@@ -129,11 +176,16 @@ class VendorProductController extends Controller
             'image' => ['required','file','max:4096','mimes:jpeg,jpg,png,gif,webp,heic,heif'],
         ]);
 
+        $old = $product->image_path;
         $product->image_path = $this->storeImageWithHeicConversion(
             $request->file('image'),
             "vendors/{$vendor->id}/products"
         );
         $product->save();
+
+        if ($old && $old !== $product->image_path) {
+            Storage::disk('public')->delete($old);
+        }
 
         return response()->json($product->fresh());
     }

@@ -1,9 +1,10 @@
 // web/src/pages/VendorDetail.tsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import api from "../lib/api";
 import ProductCard from "../components/ProductCard";
-import { ensureJpeg } from "../lib/convertHeic";
+import type { Product } from "../components/ProductCard";
+import Lightbox from "../components/Lightbox";
 
 type Vendor = {
   id: number;
@@ -12,11 +13,11 @@ type Vendor = {
   flyer_text?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;
-  banner_url?: string | null;  // comes from API
-  photo_url?: string | null;   // comes from API
+  banner_url?: string | null;
+  photo_url?: string | null;
   active: boolean;
   can_edit?: boolean;
-  products?: any[];
+  products?: Product[];
 };
 
 export default function VendorDetail() {
@@ -25,28 +26,21 @@ export default function VendorDetail() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // edit form state
+  // edit-panel state
   const [openEdit, setOpenEdit] = useState(false);
   const [name, setName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const [flyerText, setFlyerText] = useState("");
 
-  // image state (files + previews + warnings)
-  const [bannerFile, setBannerFile] = useState<File | null>(null);
-  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
-  const [bannerWarn, setBannerWarn] = useState<string | null>(null);
-
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [photoWarn, setPhotoWarn] = useState<string | null>(null);
-
-  // track object URLs to revoke on cleanup
-  const objectUrls = useRef<string[]>([]);
-
-  const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  // lightboxes
+  const [showPhoto, setShowPhoto] = useState(false);
+  const [showBanner, setShowBanner] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,50 +58,10 @@ export default function VendorDetail() {
       })
       .catch((e) => !cancelled && setErr(e?.response?.data?.message || e.message))
       .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
-  }, [id]);
-
-  // revoke blob URLs on unmount or when files change
-  useEffect(() => {
     return () => {
-      objectUrls.current.forEach((u) => URL.revokeObjectURL(u));
-      objectUrls.current = [];
+      cancelled = true;
     };
-  }, []);
-
-  async function onPickBanner(f?: File | null) {
-    setBannerWarn(null);
-    setBannerPreview(null);
-    setBannerFile(null);
-    if (!f) return;
-    const { file, previewUrl, warning } = await ensureJpeg(f, {
-      quality: 0.9,
-      maxWidth: 3000,
-      maxHeight: 3000,
-      maxSizeMB: 8,
-    });
-    objectUrls.current.push(previewUrl);
-    setBannerFile(file);
-    setBannerPreview(previewUrl);
-    setBannerWarn(warning || null);
-  }
-
-  async function onPickPhoto(f?: File | null) {
-    setPhotoWarn(null);
-    setPhotoPreview(null);
-    setPhotoFile(null);
-    if (!f) return;
-    const { file, previewUrl, warning } = await ensureJpeg(f, {
-      quality: 0.9,
-      maxWidth: 3000,
-      maxHeight: 3000,
-      maxSizeMB: 8,
-    });
-    objectUrls.current.push(previewUrl);
-    setPhotoFile(file);
-    setPhotoPreview(previewUrl);
-    setPhotoWarn(warning || null);
-  }
+  }, [id]);
 
   async function saveEdits() {
     if (!vendor) return;
@@ -115,12 +69,16 @@ export default function VendorDetail() {
     try {
       const form = new FormData();
       if (name !== vendor.name) form.append("name", name);
-      if (contactEmail !== (vendor.contact_email ?? "")) form.append("contact_email", contactEmail || "");
-      if (contactPhone !== (vendor.contact_phone ?? "")) form.append("contact_phone", contactPhone || "");
-      if ((description ?? "") !== (vendor.description ?? "")) form.append("description", description || "");
-      if ((flyerText ?? "") !== (vendor.flyer_text ?? "")) form.append("flyer_text", flyerText || "");
+      if (contactEmail !== (vendor.contact_email ?? ""))
+        form.append("contact_email", contactEmail || "");
+      if (contactPhone !== (vendor.contact_phone ?? ""))
+        form.append("contact_phone", contactPhone || "");
+      if ((description ?? "") !== (vendor.description ?? ""))
+        form.append("description", description || "");
+      if ((flyerText ?? "") !== (vendor.flyer_text ?? ""))
+        form.append("flyer_text", flyerText || "");
       if (bannerFile) form.append("banner", bannerFile);
-      if (photoFile)  form.append("photo",  photoFile);
+      if (photoFile) form.append("photo", photoFile);
 
       const res = await api.post(`/vendors/${vendor.id}/assets`, form, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -128,8 +86,8 @@ export default function VendorDetail() {
 
       setVendor(res.data);
       setOpenEdit(false);
-      setBannerFile(null); setBannerPreview(null); setBannerWarn(null);
-      setPhotoFile(null);  setPhotoPreview(null);  setPhotoWarn(null);
+      setBannerFile(null);
+      setPhotoFile(null);
       setToast("Saved!");
       setTimeout(() => setToast(null), 1200);
     } catch (e: any) {
@@ -140,42 +98,114 @@ export default function VendorDetail() {
     }
   }
 
+  // Actions on products
+  async function toggleActive(productId: number, desired: boolean) {
+    if (!vendor) return;
+    const next = {
+      ...vendor,
+      products: (vendor.products ?? []).map((p) =>
+        p.id === productId ? { ...p, active: desired, is_active: desired } : p
+      ),
+    };
+    setVendor(next as Vendor);
+    try {
+      await api
+        .patch(`/vendors/${vendor.id}/products/${productId}`, { active: desired })
+        .catch(async () => {
+          await api.put(`/vendors/${vendor.id}/products/${productId}`, {
+            active: desired,
+          });
+        });
+    } catch {
+      const r = await api.get(`/vendors/${vendor.id}`);
+      setVendor(r.data);
+      alert("Failed to change status");
+    }
+  }
+
+  async function deleteProduct(productId: number) {
+    if (!vendor) return;
+    if (!confirm("Delete this product? This cannot be undone.")) return;
+
+    setVendor({
+      ...vendor,
+      products: (vendor.products ?? []).filter((p) => p.id !== productId),
+    } as Vendor);
+
+    try {
+      await api.delete(`/vendors/${vendor.id}/products/${productId}`);
+    } catch {
+      const r = await api.get(`/vendors/${vendor.id}`);
+      setVendor(r.data);
+      alert("Delete failed");
+    }
+  }
+
   if (loading) return <div className="p-4">Loading…</div>;
   if (err || !vendor) return <div className="p-4 text-red-600">{err ?? "Not found"}</div>;
 
-  const bannerUrl = bannerPreview || vendor.banner_url || undefined;
-  const photoUrl  = photoPreview  || vendor.photo_url  || undefined;
+  const bannerUrl = vendor.banner_url || undefined;
+  const photoUrl = vendor.photo_url || undefined;
 
-  const API = (api.defaults as any).baseURL as string; // e.g. https://fmsub.fbwks.com/api
+  const API = (api.defaults as any).baseURL as string;
   const flyerHref = `${API}/vendors/${vendor.id}/flyer.pdf`;
-  const qrHref    = `${API}/vendors/${vendor.id}/qr.png`;
+  const qrHref = `${API}/vendors/${vendor.id}/qr.png`;
+
+  // sort: active first, then by name
+  const productsSorted = [...(vendor.products ?? [])].sort((a, b) => {
+    const aa = (a.active ?? a.is_active ?? true) ? 1 : 0;
+    const bb = (b.active ?? b.is_active ?? true) ? 1 : 0;
+    if (bb !== aa) return bb - aa;
+    return (a.name || "").localeCompare(b.name || "");
+  });
 
   return (
     <div className="mx-auto max-w-3xl p-4">
       {/* Banner */}
       {bannerUrl && (
-        <img
-          src={bannerUrl}
-          alt="Vendor banner"
-          className="w-full h-40 sm:h-56 object-cover rounded-2xl mb-3"
-          onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
-        />
-      )}
-
-      {/* Centered description (display) */}
-      {vendor.description && (
-        <div className="mt-4 text-xl text-center">{vendor.description}</div>
+        <>
+          <img
+            src={bannerUrl}
+            alt="Vendor banner"
+            className="w-full h-40 sm:h-56 object-cover rounded-2xl mb-3 cursor-zoom-in"
+            onClick={() => setShowBanner(true)}
+            onError={(e) =>
+              ((e.currentTarget as HTMLImageElement).style.display = "none")
+            }
+          />
+          <Lightbox open={showBanner} onClose={() => setShowBanner(false)}>
+            <img
+              src={bannerUrl}
+              alt="Vendor banner large"
+              className="max-h-[90vh] max-w-[90vw] object-contain rounded"
+              onClick={() => setShowBanner(false)}
+            />
+          </Lightbox>
+        </>
       )}
 
       {/* Header row */}
-      <div className="flex items-start gap-3 mt-3">
+      <div className="flex items-start gap-3">
         {photoUrl && (
-          <img
-            src={photoUrl}
-            alt="Vendor"
-            className="w-16 h-16 rounded-xl object-cover border cursor-pointer"
-            onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
-          />
+          <>
+            <img
+              src={photoUrl}
+              alt="Vendor"
+              className="w-16 h-16 rounded-xl object-cover border cursor-zoom-in"
+              onClick={() => setShowPhoto(true)}
+              onError={(e) =>
+                ((e.currentTarget as HTMLImageElement).style.display = "none")
+              }
+            />
+            <Lightbox open={showPhoto} onClose={() => setShowPhoto(false)}>
+              <img
+                src={photoUrl}
+                alt="Vendor large"
+                className="max-h-[90vh] max-w-[90vw] object-contain rounded"
+                onClick={() => setShowPhoto(false)}
+              />
+            </Lightbox>
+          </>
         )}
         <div className="flex-1">
           <h1 className="text-xl font-semibold">{vendor.name}</h1>
@@ -183,23 +213,23 @@ export default function VendorDetail() {
             {vendor.contact_email && <div>{vendor.contact_email}</div>}
             {vendor.contact_phone && <div>{formatPhone(vendor.contact_phone)}</div>}
           </div>
-        </div>
-        <div className="flex gap-2">
-          <a href={flyerHref} target="_blank" rel="noreferrer" className="rounded border px-4 py-2 text-sm">
-            Download flyer
-          </a>
-          <a href={qrHref} target="_blank" rel="noreferrer" className="rounded border px-4 py-2 text-sm">
-            Open QR
-          </a>
-          {vendor.can_edit && (
-            <button
-              onClick={() => setOpenEdit((v) => !v)}
-              className="rounded border px-4 py-2 text-sm"
-            >
-              {openEdit ? "Close" : "Edit"}
-            </button>
+
+          {/* Centered description block */}
+          {(vendor.flyer_text || vendor.description) && (
+            <div className="mt-4 text-xl text-center">
+              {vendor.flyer_text || vendor.description}
+            </div>
           )}
         </div>
+
+        {vendor.can_edit && (
+          <button
+            onClick={() => setOpenEdit((v) => !v)}
+            className="rounded border px-3 py-1 text-xs"
+          >
+            {openEdit ? "Close" : "Edit"}
+          </button>
+        )}
       </div>
 
       {/* Edit panel */}
@@ -207,26 +237,13 @@ export default function VendorDetail() {
         <div className="mt-4 rounded-2xl border p-4 space-y-3">
           <div>
             <label className="block text-xs text-gray-600 mb-1">Vendor name</label>
-            <input className="w-full rounded border p-2 text-sm" value={name} onChange={(e)=>setName(e.target.value)} />
+            <input
+              className="w-full rounded border p-2 text-sm"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-600 mb-1">Vendor email</label>
-              <input className="w-full rounded border p-2 text-sm" value={contactEmail} onChange={(e)=>setContactEmail(e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-600 mb-1">Vendor phone</label>
-              <input
-                className="w-full rounded border p-2 text-sm"
-                value={contactPhone}
-                onChange={(e)=>setContactPhone(e.target.value)} // let them edit freely; backend normalizes
-                placeholder="(555) 123-4567"
-              />
-            </div>
-          </div>
-
-          {/* Description (DB: description) */}
           <div>
             <label className="block text-xs text-gray-600 mb-1">Description</label>
             <textarea
@@ -238,7 +255,6 @@ export default function VendorDetail() {
             />
           </div>
 
-          {/* Flyer Text (DB: flyer_text) */}
           <div>
             <label className="block text-xs text-gray-600 mb-1">Flyer text</label>
             <textarea
@@ -246,39 +262,50 @@ export default function VendorDetail() {
               onChange={(e) => setFlyerText(e.target.value)}
               rows={3}
               className="w-full rounded border p-2 text-sm"
-              placeholder="Optional: short blurb to show on the printable flyer"
+              placeholder="Text that appears on the flyer"
             />
           </div>
 
-          {/* Images */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Vendor email</label>
+              <input
+                className="w-full rounded border p-2 text-sm"
+                value={contactEmail}
+                onChange={(e) => setContactEmail(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Vendor phone</label>
+              <input
+                className="w-full rounded border p-2 text-sm"
+                value={contactPhone}
+                onChange={(e) => setContactPhone(e.target.value)}
+                placeholder="(555) 123-4567"
+              />
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-600 mb-1">Banner image</label>
               <input
                 type="file"
-                accept="image/*,.heic,.heif"
-                onChange={(e)=>onPickBanner(e.target.files?.[0] ?? null)}
+                accept="image/*"
+                onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)}
               />
-              {bannerPreview && (
-                <img src={bannerPreview} alt="Banner preview" className="mt-2 max-h-32 rounded border object-contain" />
-              )}
-              {bannerWarn && <div className="text-red-600 text-xs mt-1">{bannerWarn}</div>}
             </div>
             <div>
               <label className="block text-xs text-gray-600 mb-1">Vendor photo</label>
               <input
                 type="file"
-                accept="image/*,.heic,.heif"
-                onChange={(e)=>onPickPhoto(e.target.files?.[0] ?? null)}
+                accept="image/*"
+                onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
               />
-              {photoPreview && (
-                <img src={photoPreview} alt="Photo preview" className="mt-2 h-24 w-24 rounded object-cover border" />
-              )}
-              {photoWarn && <div className="text-red-600 text-xs mt-1">{photoWarn}</div>}
             </div>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={saveEdits}
               disabled={saving}
@@ -286,18 +313,84 @@ export default function VendorDetail() {
             >
               {saving ? "Saving…" : "Save changes"}
             </button>
+
+            <a
+              href={flyerHref}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded border px-4 py-2 text-sm"
+            >
+              Download flyer
+            </a>
+            <a
+              href={qrHref}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded border px-4 py-2 text-sm"
+            >
+              Open QR
+            </a>
+            <Link
+              to={`/vendors/${vendor.id}/products/new`}
+              className="rounded border px-4 py-2 text-sm"
+            >
+              + Product
+            </Link>
           </div>
         </div>
       )}
 
-      {/* Products */}
-      <h2 className="mt-6 mb-2 text-sm font-semibold text-gray-700">Products</h2>
-      <div className="grid grid-cols-1 gap-3">
-        {vendor.products?.map((p: any) => (
-          <Link key={p.id} to={`/products/${p.id}`}>
-            <ProductCard product={p} />
+      {/* Products header + “+ Product” */}
+      <div className="mt-6 mb-2 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-gray-700">Products</h2>
+        {vendor.can_edit && (
+          <Link
+            to={`/vendors/${vendor.id}/products/new`}
+            className="rounded border px-4 py-2 text-sm"
+          >
+            + Product
           </Link>
-        ))}
+        )}
+      </div>
+
+      {/* Products list */}
+      <div className="grid grid-cols-1 gap-3">
+        {productsSorted.map((p) => {
+          const isActive = p.active ?? p.is_active ?? true;
+          return (
+            <ProductCard
+              key={p.id}
+              product={p}
+              to={`/products/${p.id}`}
+              actions={
+                vendor.can_edit ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Link
+                      to={`/vendors/${vendor.id}/products/${p.id}/edit`}
+                      className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                    >
+                      ✎ <span className="hidden sm:inline">Edit</span>
+                    </Link>
+
+                    <button
+                      onClick={() => toggleActive(p.id, !isActive)}
+                      className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                    >
+                      {isActive ? "Pause" : "Activate"}
+                    </button>
+
+                    <button
+                      onClick={() => deleteProduct(p.id)}
+                      className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                    >
+                      ✕ <span className="hidden sm:inline">Delete</span>
+                    </button>
+                  </div>
+                ) : undefined
+              }
+            />
+          );
+        })}
       </div>
 
       {toast && (
@@ -311,7 +404,9 @@ export default function VendorDetail() {
 
 function formatPhone(digits?: string | null) {
   const s = (digits ?? "").replace(/\D+/g, "");
-  if (s.length === 11 && s.startsWith("1")) return `(${s.slice(1,4)}) ${s.slice(4,7)}-${s.slice(7)}`;
-  if (s.length === 10) return `(${s.slice(0,3)}) ${s.slice(3,6)}-${s.slice(6)}`;
+  if (s.length === 11 && s.startsWith("1"))
+    return `(${s.slice(1, 4)}) ${s.slice(4, 7)}-${s.slice(7)}`;
+  if (s.length === 10)
+    return `(${s.slice(0, 3)}) ${s.slice(3, 6)}-${s.slice(6)}`;
   return digits ?? "";
 }
