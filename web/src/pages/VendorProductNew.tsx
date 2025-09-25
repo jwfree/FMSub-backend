@@ -115,13 +115,12 @@ export default function VendorProductNew() {
 
       navigate(`/vendors/${vendor.id}`);
     } catch (e: any) {
-      // show the most helpful server message available
-      const msg =
+    const msg =
         e?.response?.data?.message ||
-        e?.response?.data?.errors?.["variant.price_cents"]?.[0] ||
-        e?.response?.data?.errors?.price_cents?.[0] ||
+        (e?.response?.data?.errors &&
+        Object.values(e.response.data.errors).flat().join(" ")) ||
         "Create failed";
-      setErr(msg);
+    setErr(msg);
     } finally {
       setSaving(false);
     }

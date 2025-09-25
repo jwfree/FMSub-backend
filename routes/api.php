@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\VendorController;
 use App\Http\Controllers\ProductsController;
@@ -10,6 +9,8 @@ use App\Http\Controllers\SubscriptionsController;
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\VendorMediaController;
 use App\Http\Controllers\VendorProductController;
+use Illuminate\Http\Request;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -50,7 +51,7 @@ Route::get('/vendors/{vendor}/qr.png', [VendorMediaController::class, 'qr'])->na
 Route::get('/vendors/{vendor}/flyer.pdf', [VendorMediaController::class, 'flyer']);
 Route::post('/vendors/{vendor}/products/{product}/image', [VendorProductController::class, 'uploadImage'])
     ->middleware('auth:sanctum');
-    
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/vendors/{vendor}/assets', [VendorMediaController::class, 'upload']); // manage media/contact
 });
@@ -71,3 +72,27 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/subscriptions/{subscription}/resume',  [SubscriptionsController::class, 'resume']);
     Route::post('/subscriptions/{subscription}/cancel',  [SubscriptionsController::class, 'cancel']);
 });
+
+if (config('app.debug')) {
+    Route::post('/_debug/request', function (Request $request) {
+        if (!config('app.debug')) {
+            return response()->json(['error' => 'Debug disabled'], 403);
+        }
+
+        return response()->json([
+            'method'   => $request->method(),
+            'path'     => $request->path(),
+            'headers'  => collect($request->headers->all())
+                ->map(fn($v) => implode(', ', $v)),
+            'inputs'   => $request->all(),
+            'files'    => collect($request->allFiles())->map(function ($f) {
+                return [
+                    'original' => $f->getClientOriginalName(),
+                    'mime'     => $f->getClientMimeType(),
+                    'size'     => $f->getSize(),
+                    'ext'      => $f->getClientOriginalExtension(),
+                ];
+            }),
+        ]);
+    });
+}
