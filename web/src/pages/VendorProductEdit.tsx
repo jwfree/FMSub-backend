@@ -140,22 +140,22 @@ export default function VendorProductEdit() {
 
       <div className="rounded-2xl border p-4 space-y-4">
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Product name</label>
+          <label className="block text-xs text-base-content/80 mb-1">Product name</label>
           <input className="w-full rounded border p-2 text-sm" value={name} onChange={e=>setName(e.target.value)} />
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Description</label>
+          <label className="block text-xs text-base-content/80 mb-1">Description</label>
           <textarea className="w-full rounded border p-2 text-sm" rows={3} value={description} onChange={e=>setDescription(e.target.value)} />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Unit</label>
+            <label className="block text-xs text-base-content/80 mb-1">Unit</label>
             <input className="w-full rounded border p-2 text-sm" value={unit} onChange={e=>setUnit(e.target.value)} placeholder="e.g. dozen, lb, bag" />
           </div>
           <div className="flex items-end">
-            <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+            <label className="inline-flex items-center gap-2 text-xs text-base-content">
               <input type="checkbox" className="rounded" checked={active} onChange={e=>setActive(e.target.checked)} />
               Active
             </label>
@@ -165,12 +165,12 @@ export default function VendorProductEdit() {
         <hr />
 
         {/* Variants are not edited here (out of scope for now) */}
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-base-content/60">
           Variant pricing is edited elsewhere. This page updates product details and image.
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Replace image</label>
+          <label className="block text-xs text-base-content/80 mb-1">Replace image</label>
           <input type="file" accept="image/*,.heic,.heif" onChange={(e)=>onPickImage(e.target.files?.[0] ?? null)} />
           {currentImage && (
             <img src={currentImage} alt="Preview" className="mt-2 h-24 w-24 rounded object-cover border" />
@@ -179,7 +179,7 @@ export default function VendorProductEdit() {
         </div>
 
         <div className="flex gap-2">
-          <button onClick={save} disabled={saving} className="rounded bg-black text-white px-4 py-2 text-sm disabled:opacity-60">
+          <button onClick={save} disabled={saving} className="rounded bg-black text-primary-content px-4 py-2 text-sm disabled:opacity-60">
             {saving ? "Saving…" : "Save changes"}
           </button>
           <Link to={`/vendors/${vendorId}`} className="rounded border px-4 py-2 text-sm">Cancel</Link>

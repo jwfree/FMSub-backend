@@ -44,7 +44,7 @@ export default function MySubscriptions() {
 
   if (loading) return <div className="p-4">Loading…</div>;
   if (err) return <div className="p-4 text-red-600">{err}</div>;
-  if (!subs.length) return <div className="p-4 text-gray-600">No subscriptions yet.</div>;
+  if (!subs.length) return <div className="p-4 text-base-content/80">No subscriptions yet.</div>;
 
   const activeSubs = subs.filter((s) => s.status === "active" || s.status === "paused");
   const inactiveSubs = subs.filter((s) => s.status === "canceled" || s.status === "expired");
@@ -53,7 +53,7 @@ export default function MySubscriptions() {
     <div className="mx-auto max-w-2xl p-4 space-y-8">
       {activeSubs.length > 0 && (
         <section>
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Active</h2>
+          <h2 className="text-sm font-semibold text-base-content mb-3">Active</h2>
           <div className="space-y-3">
             {activeSubs.map((s) => (
               <SubscriptionCard key={s.id} sub={s} />
@@ -64,7 +64,7 @@ export default function MySubscriptions() {
 
       {inactiveSubs.length > 0 && (
         <section>
-          <h2 className="text-sm font-semibold text-gray-700 mb-3">Inactive</h2>
+          <h2 className="text-sm font-semibold text-base-content mb-3">Inactive</h2>
           <div className="space-y-3">
             {inactiveSubs.map((s) => (
               <SubscriptionCard key={s.id} sub={s} inactive />
@@ -93,26 +93,26 @@ function SubscriptionCard({ sub, inactive }: { sub: Subscription; inactive?: boo
   }
 
   return (
-    <div className="rounded-xl border bg-white p-4 shadow-sm">
+    <div className="rounded-xl border bg-base-100 p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">{sub.product?.name}</h3>
           {sub.product?.vendor && (
-            <div className="text-xs text-gray-600">{sub.product.vendor.name}</div>
+            <div className="text-xs text-base-content/80">{sub.product.vendor.name}</div>
           )}
           {sub.product_variant && (
-            <div className="text-xs text-gray-600 mt-0.5">
+            <div className="text-xs text-base-content/80 mt-0.5">
               {sub.product_variant.name} — {centsToDollars(sub.product_variant.price_cents)}
             </div>
           )}
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="text-xs text-base-content/60 mt-1">
             Every {sub.frequency}, starting {sub.start_date}
           </div>
-          {sub.notes && <div className="text-xs text-gray-500 mt-1">{sub.notes}</div>}
+          {sub.notes && <div className="text-xs text-base-content/60 mt-1">{sub.notes}</div>}
         </div>
 
         {inactive ? (
-          <span className="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600">
+          <span className="px-2 py-1 rounded-full text-xs bg-base-200 text-base-content/80">
             {sub.status.charAt(0).toUpperCase() + sub.status.slice(1)}
           </span>
         ) : (
@@ -121,7 +121,7 @@ function SubscriptionCard({ sub, inactive }: { sub: Subscription; inactive?: boo
               <button
                 disabled={working}
                 onClick={() => action("pause")}
-                className="text-xs px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-50"
+                className="text-xs px-2 py-1 rounded border border-base-300 bg-base-100 hover:bg-base-200 disabled:opacity-50"
               >
                 Pause
               </button>
@@ -130,7 +130,7 @@ function SubscriptionCard({ sub, inactive }: { sub: Subscription; inactive?: boo
               <button
                 disabled={working}
                 onClick={() => action("resume")}
-                className="text-xs px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-50"
+                className="text-xs px-2 py-1 rounded border border-base-300 bg-base-100 hover:bg-base-200 disabled:opacity-50"
               >
                 Resume
               </button>
@@ -138,7 +138,7 @@ function SubscriptionCard({ sub, inactive }: { sub: Subscription; inactive?: boo
             <button
               disabled={working}
               onClick={() => action("cancel")}
-              className="text-xs px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-50"
+              className="text-xs px-2 py-1 rounded border border-base-300 bg-base-100 hover:bg-base-200 disabled:opacity-50"
             >
               Cancel
             </button>

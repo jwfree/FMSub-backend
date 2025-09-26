@@ -141,7 +141,7 @@ export default function VendorProductNew() {
 
       <div className="rounded-2xl border p-4 space-y-4">
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Product name</label>
+          <label className="block text-xs text-base-content/80 mb-1">Product name</label>
           <input
             className="w-full rounded border p-2 text-sm"
             value={name}
@@ -150,7 +150,7 @@ export default function VendorProductNew() {
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Description</label>
+          <label className="block text-xs text-base-content/80 mb-1">Description</label>
           <textarea
             className="w-full rounded border p-2 text-sm"
             rows={3}
@@ -161,7 +161,7 @@ export default function VendorProductNew() {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Unit</label>
+            <label className="block text-xs text-base-content/80 mb-1">Unit</label>
             <input
               className="w-full rounded border p-2 text-sm"
               value={unit}
@@ -170,7 +170,7 @@ export default function VendorProductNew() {
             />
           </div>
           <div className="flex items-end">
-            <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+            <label className="inline-flex items-center gap-2 text-xs text-base-content">
               <input
                 type="checkbox"
                 className="rounded"
@@ -187,7 +187,7 @@ export default function VendorProductNew() {
         <div className="font-medium text-sm">First variant</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs text-gray-600 mb-1">SKU</label>
+            <label className="block text-xs text-base-content/80 mb-1">SKU</label>
             <input
               className="w-full rounded border p-2 text-sm"
               value={sku}
@@ -195,7 +195,7 @@ export default function VendorProductNew() {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Variant name</label>
+            <label className="block text-xs text-base-content/80 mb-1">Variant name</label>
             <input
               className="w-full rounded border p-2 text-sm"
               value={variantName}
@@ -204,7 +204,7 @@ export default function VendorProductNew() {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Price (USD)</label>
+            <label className="block text-xs text-base-content/80 mb-1">Price (USD)</label>
             <input
               className="w-full rounded border p-2 text-sm"
               inputMode="decimal"
@@ -217,7 +217,7 @@ export default function VendorProductNew() {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Currency</label>
+            <label className="block text-xs text-base-content/80 mb-1">Currency</label>
             <input
               className="w-full rounded border p-2 text-sm"
               value={currency}
@@ -225,7 +225,7 @@ export default function VendorProductNew() {
             />
           </div>
           <div className="flex items-end">
-            <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+            <label className="inline-flex items-center gap-2 text-xs text-base-content">
               <input
                 type="checkbox"
                 className="rounded"
@@ -240,7 +240,7 @@ export default function VendorProductNew() {
         <hr />
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Product image</label>
+          <label className="block text-xs text-base-content/80 mb-1">Product image</label>
           <input
             type="file"
             accept="image/*,.heic,.heif"
@@ -260,7 +260,7 @@ export default function VendorProductNew() {
           <button
             onClick={submit}
             disabled={saving}
-            className="rounded bg-black text-white px-4 py-2 text-sm disabled:opacity-60"
+            className="rounded bg-black text-primary-content px-4 py-2 text-sm disabled:opacity-60"
           >
             {saving ? "Creating…" : "Create product"}
           </button>

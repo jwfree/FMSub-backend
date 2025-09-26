@@ -1,5 +1,228 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* src/index.css */
+@import "tailwindcss";
 
-html, body, #root { height: 100%; }
+/* ===== Base theme variables ===== */
+@layer base {
+  /* Default (light) */
+  :root,
+  [data-theme="light"] {
+    --color-base-100: oklch(100% 0 0);
+    --color-base-200: oklch(98% 0 0);
+    --color-base-300: oklch(95% 0 0);
+    --color-base-content: oklch(21% .006 285.885);
+
+    --color-primary: oklch(45% .24 277.023);
+    --color-primary-content: oklch(93% .034 272.788);
+
+    --color-secondary: oklch(65% .241 354.308);
+    --color-secondary-content: oklch(94% .028 342.258);
+
+    --color-accent: oklch(77% .152 181.912);
+    --color-accent-content: oklch(38% .063 188.416);
+
+    --color-info: oklch(74% .16 232.661);
+    --color-success: oklch(76% .177 163.223);
+    --color-warning: oklch(82% .189 84.429);
+    --color-error: oklch(71% .194 13.428);
+  }
+
+  /* Dark */
+  [data-theme="dark"] {
+    --color-base-100: oklch(25.33% .016 252.42);
+    --color-base-200: oklch(23.26% .014 253.1);
+    --color-base-300: oklch(21.15% .012 254.09);
+    --color-base-content: oklch(97.807% .029 256.847);
+
+    --color-primary: oklch(58% .233 277.117);
+    --color-primary-content: oklch(96% .018 272.314);
+
+    --color-secondary: oklch(65% .241 354.308);
+    --color-secondary-content: oklch(94% .028 342.258);
+
+    --color-accent: oklch(77% .152 181.912);
+    --color-accent-content: oklch(38% .063 188.416);
+
+    --color-info: oklch(74% .16 232.661);
+    --color-success: oklch(76% .177 163.223);
+    --color-warning: oklch(82% .189 84.429);
+    --color-error: oklch(71% .194 13.428);
+  }
+
+  /* Farmers (your custom) */
+  [data-theme="farmers"] {
+    --color-primary: #2E7D32;
+    --color-primary-content: #ffffff;
+    --color-secondary: #D26A2E;
+    --color-secondary-content: #1f130c;
+    --color-accent: #5C7F67;
+    --color-base-100: #F3E7CF;
+    --color-base-200: #EAD9BD;
+    --color-base-300: #E1CFB0;
+    --color-base-content: #2A2A2A;
+    --color-info: #3ABFF8;
+    --color-success: #36D399;
+    --color-warning: #FBBF24;
+    --color-error: #F87272;
+  }
+
+  /* A few extras to replace DaisyUI presets (tweak as desired) */
+  [data-theme="autumn"] {
+    --color-base-100: #FBF4E2;
+    --color-base-200: #F3E6C9;
+    --color-base-300: #E7D7AF;
+    --color-base-content: #2A1F0F;
+
+    --color-primary: #B45309;              /* burnt orange */
+    --color-primary-content: #fff;
+    --color-secondary: #92400E;            /* deeper orange-brown */
+    --color-secondary-content: #fff;
+    --color-accent: #4D7C0F;               /* olive green */
+    --color-accent-content: #fff;
+
+    --color-info: #2563EB;
+    --color-success: #16A34A;
+    --color-warning: #D97706;
+    --color-error: #DC2626;
+  }
+
+  [data-theme="emerald"] {
+    --color-base-100: #F1FBF5;
+    --color-base-200: #DDF6E6;
+    --color-base-300: #C7EED5;
+    --color-base-content: #112016;
+
+    --color-primary: #059669;
+    --color-primary-content: #fff;
+    --color-secondary: #10B981;
+    --color-secondary-content: #053726;
+    --color-accent: #0EA5E9;
+    --color-accent-content: #052535;
+
+    --color-info: #2563EB;
+    --color-success: #16A34A;
+    --color-warning: #D97706;
+    --color-error: #DC2626;
+  }
+
+  [data-theme="cupcake"] {
+    --color-base-100: #FDF7F9;
+    --color-base-200: #F8E9F0;
+    --color-base-300: #F0D9E5;
+    --color-base-content: #2A1C24;
+
+    --color-primary: #E879F9;
+    --color-primary-content: #3A0A3F;
+    --color-secondary: #F59E0B;
+    --color-secondary-content: #3B2300;
+    --color-accent: #60A5FA;
+    --color-accent-content: #0B2547;
+
+    --color-info: #2563EB;
+    --color-success: #16A34A;
+    --color-warning: #D97706;
+    --color-error: #DC2626;
+  }
+
+  [data-theme="corporate"] {
+    --color-base-100: #F7FAFC;
+    --color-base-200: #EDF2F7;
+    --color-base-300: #E2E8F0;
+    --color-base-content: #1A202C;
+
+    --color-primary: #2563EB;
+    --color-primary-content: #F8FAFF;
+    --color-secondary: #4F46E5;
+    --color-secondary-content: #EEF2FF;
+    --color-accent: #0EA5E9;
+    --color-accent-content: #F0F9FF;
+
+    --color-info: #2563EB;
+    --color-success: #16A34A;
+    --color-warning: #D97706;
+    --color-error: #DC2626;
+  }
+
+  [data-theme="fantasy"] {
+    --color-base-100: #F7F3FF;
+    --color-base-200: #EDE7FE;
+    --color-base-300: #E2D9FD;
+    --color-base-content: #221A38;
+
+    --color-primary: #8B5CF6;
+    --color-primary-content: #F8F5FF;
+    --color-secondary: #EC4899;
+    --color-secondary-content: #3E0E26;
+    --color-accent: #22D3EE;
+    --color-accent-content: #042A2F;
+
+    --color-info: #2563EB;
+    --color-success: #16A34A;
+    --color-warning: #D97706;
+    --color-error: #DC2626;
+  }
+
+  html, body, #root {
+    min-height: 100%;
+    background-color: var(--color-base-100);
+    color: var(--color-base-content);
+  }
+}
+
+/* ===== Utilities to replace DaisyUI tokens ===== */
+@layer utilities {
+  .bg-base-100 { background-color: var(--color-base-100); }
+  .bg-base-200 { background-color: var(--color-base-200); }
+  .bg-base-200 { background-color: var(--color-base-300); }
+  .border-base-300 { border-color: var(--color-base-300); }
+  .text-base-content { color: var(--color-base-content); }
+  .link-primary { color: var(--color-primary); }
+}
+
+/* ===== Tiny component shims (so you don’t rewrite JSX) ===== */
+@layer components {
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-lg border px-3 py-2 text-sm font-semibold shadow-sm transition;
+    background-color: var(--color-base-200);
+    color: var(--color-base-content);
+    border-color: var(--color-base-300);
+  }
+  .btn:hover { filter: brightness(0.98); }
+    .btn:focus-visible {
+      @apply outline-2 outline-offset-2;
+      outline-color: var(--color-base-content);
+    }
+    .btn-primary {
+    background-color: var(--color-primary);
+    color: var(--color-primary-content);
+    border-color: var(--color-primary);
+  }
+  .btn-sm { @apply text-xs px-2 py-1.5; }
+  .btn-xs { @apply text-[11px] px-2 py-1; }
+
+  /* Inputs */
+  .input {
+    @apply inline-flex items-center h-10 w-full max-w-full rounded-md border px-3 text-sm shadow-sm;
+    background-color: var(--color-base-100);
+    color: var(--color-base-content);
+    border-color: var(--color-base-300);
+  }
+  .input-sm { @apply h-8 text-xs; }
+
+  /* Select */
+  .select {
+    @apply inline-flex items-center h-10 rounded-md border px-3 text-sm shadow-sm;
+    background-color: var(--color-base-100);
+    color: var(--color-base-content);
+    border-color: var(--color-base-300);
+  }
+  .select-sm { @apply h-8 text-xs; }
+  .select select { @apply bg-transparent outline-none w-full; }
+
+  /* Card */
+  .card {
+    @apply rounded-xl border shadow-sm;
+    background-color: var(--color-base-100);
+    border-color: var(--color-base-300);
+  }
+}

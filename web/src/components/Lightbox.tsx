@@ -35,7 +35,7 @@ export default function Lightbox({ open, onClose, children }: Props) {
       </div>
       <button
         aria-label="Close"
-        className="absolute top-3 right-3 rounded bg-white/90 px-2 py-1 text-xs"
+        className="absolute top-3 right-3 rounded bg-base-100/90 px-2 py-1 text-xs"
         onClick={onClose}
       >
         Close

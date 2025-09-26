@@ -19,7 +19,7 @@ type Product = {
   is_active: boolean;
   vendor?: { id: number; name: string };
   variants: Variant[];
-  image_url?: string | null; // <-- show this if present
+  image_url?: string | null;
 };
 
 export default function ProductDetail() {
@@ -41,9 +41,9 @@ export default function ProductDetail() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // lightbox for product image
+  // lightbox
   const [showImg, setShowImg] = useState(false);
-  const [imgHidden, setImgHidden] = useState(false); // if load fails, hide <img>
+  const [imgHidden, setImgHidden] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,33 +89,33 @@ export default function ProductDetail() {
     }
   }
 
-  if (loading) return <div className="p-4">Loading…</div>;
-  if (err || !product) return <div className="p-4 text-red-600">{err ?? "Not found"}</div>;
+  if (loading) return <div className="p-4 text-sm text-base-content/80">Loading…</div>;
+  if (err || !product) return <div className="p-4 text-error">{err ?? "Not found"}</div>;
 
   const minPrice = Math.min(...(product.variants || []).map((v) => v.price_cents));
 
   return (
     <div className="mx-auto max-w-2xl p-4">
-      <button onClick={() => navigate(-1)} className="text-sm text-blue-600">
+      <button onClick={() => navigate(-1)} className="text-sm text-primary hover:underline">
         &larr; Back
       </button>
 
-      {/* Image up top */}
+      {/* Image */}
       {product.image_url && !imgHidden && (
         <div className="mt-3">
           <img
             src={product.image_url}
             alt={product.name}
-            className="w-full max-h-80 rounded-2xl object-cover border cursor-zoom-in"
+            className="w-full max-h-80 rounded-2xl object-cover border border-base-300 bg-base-200 cursor-zoom-in"
             onClick={() => setShowImg(true)}
             onError={() => setImgHidden(true)}
           />
         </div>
       )}
 
-      <h1 className="text-xl font-semibold mt-3">{product.name}</h1>
+      <h1 className="text-xl font-semibold mt-3 text-base-content">{product.name}</h1>
       {product.vendor?.name && (
-        <div className="text-sm text-gray-600">{product.vendor.name}</div>
+        <div className="text-sm text-base-content/80">{product.vendor.name}</div>
       )}
       {Number.isFinite(minPrice) && (
         <div className="mt-1 text-sm font-semibold">
@@ -123,16 +123,16 @@ export default function ProductDetail() {
         </div>
       )}
       {product.description && (
-        <p className="mt-3 text-gray-700">{product.description}</p>
+        <p className="mt-3 text-base-content">{product.description}</p>
       )}
 
       {/* Subscribe box */}
-      <div className="mt-6 space-y-3 rounded-xl border p-4">
-        <div className="text-sm font-medium">Choose an option</div>
+      <div className="mt-6 space-y-3 rounded-xl border border-base-300 p-4">
+        <div className="text-sm font-medium text-base-content">Choose an option</div>
         <select
           value={variantId}
           onChange={(e) => setVariantId(Number(e.target.value))}
-          className="w-full rounded-lg border p-2 text-sm"
+          className="w-full rounded-lg border border-base-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-primary]"
         >
           {product.variants.map((v) => (
             <option key={v.id} value={v.id}>
@@ -143,20 +143,20 @@ export default function ProductDetail() {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <div>
-            <div className="text-xs text-gray-600 mb-1">Start date</div>
+            <div className="text-xs text-base-content/80 mb-1">Start date</div>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full rounded-lg border p-2 text-sm"
+              className="w-full rounded-lg border border-base-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-primary]"
             />
           </div>
           <div>
-            <div className="text-xs text-gray-600 mb-1">Frequency</div>
+            <div className="text-xs text-base-content/80 mb-1">Frequency</div>
             <select
               value={frequency}
               onChange={(e) => setFrequency(e.target.value as any)}
-              className="w-full rounded-lg border p-2 text-sm"
+              className="w-full rounded-lg border border-base-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-primary]"
             >
               <option value="weekly">Weekly</option>
               <option value="biweekly">Every 2 weeks</option>
@@ -166,28 +166,28 @@ export default function ProductDetail() {
         </div>
 
         <div>
-          <div className="text-xs text-gray-600 mb-1">Notes (optional)</div>
+          <div className="text-xs text-base-content/80 mb-1">Notes (optional)</div>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
-            className="w-full rounded-lg border p-2 text-sm"
+            className="w-full rounded-lg border border-base-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-primary]"
             placeholder="Any preferences or pickup notes…"
           />
         </div>
 
-        <button
-          onClick={onSubscribe}
-          disabled={submitting || !variantId || !startDate}
-          className="w-full rounded-lg bg-black px-4 py-2 text-white disabled:opacity-60"
-        >
-          {submitting ? "Creating…" : "Subscribe"}
-        </button>
+      <button
+        onClick={onSubscribe}
+        disabled={submitting || !variantId || !startDate}
+        className="w-full rounded-lg btn-primary px-4 py-2 text-primary-content disabled:opacity-60"
+      >
+        {submitting ? "Creating…" : "Subscribe"}
+      </button>
       </div>
 
       {/* Toast */}
       {toast && (
-        <div className="fixed top-3 left-1/2 -translate-x-1/2 rounded-lg bg-black/80 px-3 py-2 text-xs text-white">
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 rounded-lg bg-primary px-3 py-2 text-xs text-primary-content shadow">
           {toast}
         </div>
       )}

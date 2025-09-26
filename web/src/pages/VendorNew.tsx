@@ -35,7 +35,7 @@ export default function VendorNew() {
       <h1 className="text-lg font-semibold mb-3">Become a vendor</h1>
       <form onSubmit={submit} className="space-y-3">
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Vendor name</label>
+          <label className="block text-xs text-base-content/80 mb-1">Vendor name</label>
           <input
             className="w-full rounded border px-3 py-2 text-sm"
             value={name}
@@ -45,7 +45,7 @@ export default function VendorNew() {
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Vendor email (optional)</label>
+          <label className="block text-xs text-base-content/80 mb-1">Vendor email (optional)</label>
           <input
             type="email"
             className="w-full rounded border px-3 py-2 text-sm"
@@ -55,7 +55,7 @@ export default function VendorNew() {
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Vendor phone (optional)</label>
+          <label className="block text-xs text-base-content/80 mb-1">Vendor phone (optional)</label>
           <input
             className="w-full rounded border px-3 py-2 text-sm"
             value={contactPhone}
@@ -63,7 +63,7 @@ export default function VendorNew() {
             placeholder="555-123-4567"
           />
           {contactPhone && (
-            <p className="text-[11px] text-gray-500 mt-1">
+            <p className="text-[11px] text-base-content/60 mt-1">
               Will be saved as: {prettyPhone || contactPhone.replace(/\D+/g, "")}
             </p>
           )}
@@ -73,14 +73,14 @@ export default function VendorNew() {
 
         <button
           type="submit"
-          className="w-full rounded bg-black text-white py-2 text-sm disabled:opacity-60"
+          className="w-full rounded bg-black text-primary-content py-2 text-sm disabled:opacity-60"
           disabled={saving || !name.trim()}
         >
           {saving ? "Creating…" : "Create vendor"}
         </button>
       </form>
 
-      <p className="text-xs text-gray-500 mt-3">
+      <p className="text-xs text-base-content/60 mt-3">
         After creating, you can add a banner, photo, description, flyer text, products, and locations.
       </p>
     </div>

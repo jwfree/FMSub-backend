@@ -70,36 +70,36 @@ export default function VendorManage() {
         <h1 className="text-lg font-semibold">Manage Vendor</h1>
         <button
           onClick={() => navigate(`/vendors/${vendor.id}`)}
-          className="text-xs rounded border px-3 py-1 hover:bg-gray-50"
+          className="text-xs rounded border border-base-300 bg-base-100 px-3 py-1 hover:bg-base-200"
         >
           View public page
         </button>
       </div>
 
-      <form onSubmit={onSave} className="space-y-4 rounded-xl border p-4 bg-white">
+      <form onSubmit={onSave} className="space-y-4 rounded-xl border p-4 bg-base-100">
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Vendor name</label>
+            <label className="block text-xs text-base-content/80 mb-1">Vendor name</label>
             <input name="name" defaultValue={vendor.name} className="w-full rounded border p-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Email</label>
+            <label className="block text-xs text-base-content/80 mb-1">Email</label>
             <input name="contact_email" defaultValue={vendor.contact_email ?? ""} className="w-full rounded border p-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Phone</label>
+            <label className="block text-xs text-base-content/80 mb-1">Phone</label>
             <input name="contact_phone" defaultValue={vendor.contact_phone ?? ""} className="w-full rounded border p-2 text-sm" />
           </div>
         </div>
 
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Banner image</label>
+            <label className="block text-xs text-base-content/80 mb-1">Banner image</label>
             <input type="file" name="banner" accept="image/*" className="w-full text-sm" />
             {vendor.banner_url && <img src={vendor.banner_url} alt="Banner" className="mt-2 h-24 w-full object-cover rounded" />}
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Photo</label>
+            <label className="block text-xs text-base-content/80 mb-1">Photo</label>
             <input type="file" name="photo" accept="image/*" className="w-full text-sm" />
             {vendor.photo_url && <img src={vendor.photo_url} alt="Photo" className="mt-2 h-24 w-24 object-cover rounded-full border" />}
           </div>
@@ -110,13 +110,13 @@ export default function VendorManage() {
         <button
           type="submit"
           disabled={saving}
-          className="rounded bg-black text-white px-4 py-2 text-sm disabled:opacity-60"
+          className="rounded bg-black text-primary-content px-4 py-2 text-sm disabled:opacity-60"
         >
           {saving ? "Saving…" : "Save changes"}
         </button>
       </form>
 
-      <div className="rounded-xl border p-4 bg-white">
+      <div className="rounded-xl border p-4 bg-base-100">
         <div className="text-sm font-medium mb-2">QR Code</div>
         <div className="flex items-center gap-4">
           <img src={qrPng} alt="QR" className="w-40 h-40" />
@@ -127,11 +127,11 @@ export default function VendorManage() {
         </div>
       </div>
 
-      <div className="rounded-xl border p-4 bg-white">
+      <div className="rounded-xl border p-4 bg-base-100">
         <div className="text-sm font-medium mb-2">Printable Flyer</div>
         <a
           href={flyer}
-          className="rounded border px-3 py-2 text-sm hover:bg-gray-50"
+          className="rounded border px-3 py-2 text-sm hover:bg-base-200"
           target="_blank" rel="noreferrer"
         >
           Download PDF

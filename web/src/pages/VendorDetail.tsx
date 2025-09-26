@@ -292,7 +292,7 @@ export default function VendorDetail() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold">{vendor.name}</h1>
-              <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+              <div className="text-xs text-base-content/80 mt-1 space-y-0.5">
                 {vendor.contact_email && <div>{vendor.contact_email}</div>}
                 {vendor.contact_phone && <div>{formatPhone(vendor.contact_phone)}</div>}
               </div>
@@ -302,7 +302,7 @@ export default function VendorDetail() {
             <button
               aria-label={(vendor.is_favorite ? "Unfollow " : "Follow ") + vendor.name}
               onClick={toggleFavorite}
-              className="select-none rounded-full border px-3 py-1 text-sm leading-none hover:bg-gray-50"
+              className="select-none rounded-full border px-3 py-1 text-sm leading-none hover:bg-base-200"
               title={vendor.is_favorite ? "Unfollow" : "Follow"}
             >
               <span className="text-lg align-middle">
@@ -321,7 +321,7 @@ export default function VendorDetail() {
         {vendor.can_edit && (
           <button
             onClick={() => setOpenEdit((v) => !v)}
-            className="rounded border px-3 py-1 text-xs"
+            className="rounded border border-base-300 bg-base-100 px-3 py-1 text-xs"
           >
             {openEdit ? "Close" : "Edit"}
           </button>
@@ -332,7 +332,7 @@ export default function VendorDetail() {
       {vendor.can_edit && openEdit && (
         <div className="mt-4 rounded-2xl border p-4 space-y-3">
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Vendor name</label>
+            <label className="block text-xs text-base-content/80 mb-1">Vendor name</label>
             <input
               className="w-full rounded border p-2 text-sm"
               value={name}
@@ -341,7 +341,7 @@ export default function VendorDetail() {
           </div>
 
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Description</label>
+            <label className="block text-xs text-base-content/80 mb-1">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -352,7 +352,7 @@ export default function VendorDetail() {
           </div>
 
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Flyer text</label>
+            <label className="block text-xs text-base-content/80 mb-1">Flyer text</label>
             <textarea
               value={flyerText}
               onChange={(e) => setFlyerText(e.target.value)}
@@ -364,7 +364,7 @@ export default function VendorDetail() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Vendor email</label>
+              <label className="block text-xs text-base-content/80 mb-1">Vendor email</label>
               <input
                 className="w-full rounded border p-2 text-sm"
                 value={contactEmail}
@@ -372,7 +372,7 @@ export default function VendorDetail() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Vendor phone</label>
+              <label className="block text-xs text-base-content/80 mb-1">Vendor phone</label>
               <input
                 className="w-full rounded border p-2 text-sm"
                 value={contactPhone}
@@ -385,7 +385,7 @@ export default function VendorDetail() {
           {/* Vendor Address (Primary location) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Address line 1</label>
+              <label className="block text-xs text-base-content/80 mb-1">Address line 1</label>
               <input
                 className="w-full rounded border p-2 text-sm"
                 value={address1}
@@ -394,7 +394,7 @@ export default function VendorDetail() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Address line 2</label>
+              <label className="block text-xs text-base-content/80 mb-1">Address line 2</label>
               <input
                 className="w-full rounded border p-2 text-sm"
                 value={address2}
@@ -403,7 +403,7 @@ export default function VendorDetail() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">City</label>
+              <label className="block text-xs text-base-content/80 mb-1">City</label>
               <input
                 className="w-full rounded border p-2 text-sm"
                 value={city}
@@ -411,7 +411,7 @@ export default function VendorDetail() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">State/Region</label>
+              <label className="block text-xs text-base-content/80 mb-1">State/Region</label>
               <input
                 className="w-full rounded border p-2 text-sm"
                 value={region}
@@ -419,7 +419,7 @@ export default function VendorDetail() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Postal code</label>
+              <label className="block text-xs text-base-content/80 mb-1">Postal code</label>
               <input
                 className="w-full rounded border p-2 text-sm"
                 value={postal}
@@ -427,7 +427,7 @@ export default function VendorDetail() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Country (2-letter)</label>
+              <label className="block text-xs text-base-content/80 mb-1">Country (2-letter)</label>
               <input
                 className="w-full rounded border p-2 text-sm"
                 value={country}
@@ -440,7 +440,7 @@ export default function VendorDetail() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Banner image</label>
+              <label className="block text-xs text-base-content/80 mb-1">Banner image</label>
               <input
                 type="file"
                 accept="image/*"
@@ -448,7 +448,7 @@ export default function VendorDetail() {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-600 mb-1">Vendor photo</label>
+              <label className="block text-xs text-base-content/80 mb-1">Vendor photo</label>
               <input
                 type="file"
                 accept="image/*"
@@ -461,7 +461,7 @@ export default function VendorDetail() {
             <button
               onClick={saveEdits}
               disabled={saving}
-              className="rounded bg-black text-white px-4 py-2 text-sm disabled:opacity-60"
+              className="rounded bg-black text-primary-content px-4 py-2 text-sm disabled:opacity-60"
             >
               {saving ? "Saving…" : "Save changes"}
             </button>
@@ -488,7 +488,7 @@ export default function VendorDetail() {
 
       {/* Products header + “+ Product” */}
       <div className="mt-6 mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-gray-700">Products</h2>
+        <h2 className="text-sm font-semibold text-base-content">Products</h2>
         {vendor.can_edit && (
           <Link
             to={`/vendors/${vendor.id}/products/new`}
@@ -537,7 +537,7 @@ export default function VendorDetail() {
       {/* Inactive products (only for vendor) */}
       {vendor.can_edit && inactiveProducts.length > 0 && (
         <>
-          <h3 className="mt-6 mb-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">
+          <h3 className="mt-6 mb-2 text-xs font-semibold text-base-content/80 uppercase tracking-wide">
             Inactive
           </h3>
           <div className="grid grid-cols-1 gap-3 opacity-90">
@@ -575,7 +575,7 @@ export default function VendorDetail() {
       )}
 
       {toast && (
-        <div className="fixed top-3 left-1/2 -translate-x-1/2 rounded bg-black/80 text-white text-xs px-3 py-2">
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 rounded bg-black/80 text-primary-content text-xs px-3 py-2">
           {toast}
         </div>
       )}

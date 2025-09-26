@@ -1,4 +1,3 @@
-// web/src/pages/Browse.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import VendorCard, { type Vendor } from "../components/VendorCard";
@@ -11,14 +10,14 @@ type Page<T> = {
   total: number;
 };
 
-type Mode = "favorites" | "nearby";
-
 export default function Browse() {
   const [tab, setTab] = useState<"vendors" | "products">("vendors");
 
-  // Favorites vs Nearby toggle — default to favorites if logged in
-  const token = localStorage.getItem("token");
-  const [mode, setMode] = useState<Mode>(token ? "favorites" : "nearby");
+  // ---- vendor mode + geolocation ----
+  const [mode, setMode] = useState<"favorites" | "nearby">("favorites");
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [radius, setRadius] = useState<number>(10);
+  const [geoErr, setGeoErr] = useState<string | null>(null);
 
   // shared UI state
   const [q, setQ] = useState("");
@@ -36,56 +35,41 @@ export default function Browse() {
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState<string | null>(null);
 
-  // nearby controls (vendors only for now)
-  const [radius, setRadius] = useState<number>(10); // miles
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [geoError, setGeoError] = useState<string | null>(null);
-
-  // Ask for geolocation when switching into "nearby"
+  // ask for location if in nearby mode
   useEffect(() => {
-    if (mode !== "nearby") return;
-    let cancelled = false;
+    if (tab !== "vendors" || mode !== "nearby" || coords || geoErr) return;
 
     if (!("geolocation" in navigator)) {
-      setGeoError("Geolocation is not supported on this device.");
+      setGeoErr("Geolocation is not supported by this browser.");
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        if (cancelled) return;
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setGeoError(null);
+        setGeoErr(null);
       },
-      (e) => {
-        if (cancelled) return;
-        setGeoError(e.message || "Unable to get location.");
-        setCoords(null);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+      (err) => setGeoErr(err.message || "Location permission denied."),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
     );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mode]);
+  }, [tab, mode, coords, geoErr]);
 
   // fetch vendors
   useEffect(() => {
     if (tab !== "vendors") return;
-    // If nearby is selected but we don't yet have coords (and no error), wait.
-    if (mode === "nearby" && !coords && !geoError) return;
-
     let cancelled = false;
     setVendorsLoading(true);
     setVendorsError(null);
 
-    const params: Record<string, any> = { per_page: perPage, page, with: "none" };
-    if (q.trim()) params.q = q.trim();
+    if (mode === "nearby" && !coords) {
+      setVendorsLoading(false);
+      return () => { cancelled = true; };
+    }
 
-    if (mode === "favorites") {
-      params.favorites = 1; // backend will 401 if not authed
-    } else if (mode === "nearby" && coords) {
+    const params: Record<string, any> = { per_page: perPage, page };
+    if (q.trim()) params.q = q.trim();
+    if (mode === "favorites") params.favorites = 1;
+    if (mode === "nearby" && coords) {
       params.lat = coords.lat;
       params.lng = coords.lng;
       params.radius_miles = radius;
@@ -97,10 +81,8 @@ export default function Browse() {
       .catch((e) => !cancelled && setVendorsError(msg(e)))
       .finally(() => !cancelled && setVendorsLoading(false));
 
-    return () => {
-      cancelled = true;
-    };
-  }, [tab, q, page, mode, coords, radius, geoError]);
+    return () => { cancelled = true; };
+  }, [tab, q, page, mode, coords, radius]);
 
   // fetch products
   useEffect(() => {
@@ -113,71 +95,44 @@ export default function Browse() {
     if (q.trim()) params.q = q.trim();
     if (vendorIdFilter !== "all") params.vendor_id = vendorIdFilter;
 
-    // Favorites for products (requires backend support: favorite_vendor_only=1)
-    if (mode === "favorites") {
-      params.favorite_vendor_only = 1;
-    }
-
     api
       .get<Page<Product>>("/products", { params })
       .then((r) => !cancelled && setProducts(r.data))
       .catch((e) => !cancelled && setProductsError(msg(e)))
       .finally(() => !cancelled && setProductsLoading(false));
 
-    return () => {
-      cancelled = true;
-    };
-  }, [tab, q, page, vendorIdFilter, mode]);
+    return () => { cancelled = true; };
+  }, [tab, q, page, vendorIdFilter]);
 
-  // used to populate vendor filter on Products tab
+  // vendor filter options for products tab
   const vendorOptions = useVendorOptions();
 
-  // reset page when filters change
-  useEffect(() => {
-    setPage(1);
-  }, [tab, q, vendorIdFilter, mode, radius, coords?.lat, coords?.lng]);
+  useEffect(() => { setPage(1); }, [tab, q, vendorIdFilter, mode, radius]);
 
   return (
     <div className="mx-auto max-w-3xl p-4">
-      {/* Top row: Tabs + Mode toggle */}
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex rounded-xl bg-gray-100 p-1">
-          <button
-            className={`flex-1 py-2 px-3 text-sm rounded-lg ${
-              tab === "vendors" ? "bg-white shadow font-medium" : "text-gray-600"
-            }`}
-            onClick={() => setTab("vendors")}
-          >
-            Vendors
-          </button>
-          <button
-            className={`flex-1 py-2 px-3 text-sm rounded-lg ${
-              tab === "products" ? "bg-white shadow font-medium" : "text-gray-600"
-            }`}
-            onClick={() => setTab("products")}
-          >
-            Products
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setMode("favorites")}
-            className={`rounded px-3 py-1 text-sm border ${
-              mode === "favorites" ? "bg-black text-white" : ""
-            }`}
-          >
-            Favorites
-          </button>
-          <button
-            onClick={() => setMode("nearby")}
-            className={`rounded px-3 py-1 text-sm border ${
-              mode === "nearby" ? "bg-black text-white" : ""
-            }`}
-          >
-            Nearby
-          </button>
-        </div>
+      {/* Tabs */}
+      <div className="flex rounded-xl bg-base-200 p-1 mb-4">
+        <button
+          className={`flex-1 py-2 text-sm rounded-lg ${
+            tab === "vendors"
+              ? "bg-base-100 shadow font-medium"
+              : "text-base-content/80"
+          }`}
+          onClick={() => setTab("vendors")}
+        >
+          Vendors
+        </button>
+        <button
+          className={`flex-1 py-2 text-sm rounded-lg ${
+            tab === "products"
+              ? "bg-base-100 shadow font-medium"
+              : "text-base-content/80"
+          }`}
+          onClick={() => setTab("products")}
+        >
+          Products
+        </button>
       </div>
 
       {/* Filters */}
@@ -186,45 +141,74 @@ export default function Browse() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={tab === "vendors" ? "Search vendors…" : "Search products…"}
-          className="w-full rounded-xl border p-2 text-sm"
+          className="w-full rounded-xl border border-base-300 bg-base-100 p-2 text-sm
+                     placeholder:text-base-content/60 focus:outline-none
+                     focus:ring-2 focus:ring-[--color-primary] focus:border-[--color-primary]"
         />
-        {tab === "products" && (
+
+        {tab === "vendors" ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMode("favorites")}
+              aria-pressed={mode === "favorites"}
+              className={`px-3 py-2 rounded-xl text-sm ${
+                mode === "favorites"
+                  ? "bg-[--color-primary] text-[--color-primary-content] border border-[--color-primary]"
+                  : "border border-base-300 bg-base-100 text-base-content hover:bg-base-200"
+              }`}
+            >
+              Favorites
+            </button>
+            <button
+              onClick={() => setMode("nearby")}
+              aria-pressed={mode === "nearby"}
+              className={`px-3 py-2 rounded-xl text-sm ${
+                mode === "nearby"
+                  ? "bg-[--color-primary] text-[--color-primary-content] border border-[--color-primary]"
+                  : "border border-base-300 bg-base-100 text-base-content hover:bg-base-200"
+              }`}
+            >
+              Nearby
+            </button>
+
+            {mode === "nearby" && (
+              <select
+                value={radius}
+                onChange={(e) => setRadius(Number(e.target.value))}
+                className="rounded-xl border border-base-300 bg-base-100 p-2 text-sm
+                           focus:outline-none focus:ring-2 focus:ring-[--color-primary]
+                           focus:border-[--color-primary]"
+              >
+                {[5, 10, 15, 25, 50].map((m) => (
+                  <option key={m} value={m}>{m} mi</option>
+                ))}
+              </select>
+            )}
+          </div>
+        ) : (
           <select
             value={vendorIdFilter}
             onChange={(e) =>
               setVendorIdFilter(e.target.value === "all" ? "all" : Number(e.target.value))
             }
-            className="rounded-xl border p-2 text-sm"
+            className="rounded-xl border border-base-300 bg-base-100 p-2 text-sm
+                       focus:outline-none focus:ring-2 focus:ring-[--color-primary]
+                       focus:border-[--color-primary]"
           >
             <option value="all">All vendors</option>
             {vendorOptions.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
+              <option key={v.id} value={v.id}>{v.name}</option>
             ))}
-          </select>
-        )}
-        {tab === "vendors" && mode === "nearby" && (
-          <select
-            value={radius}
-            onChange={(e) => setRadius(Number(e.target.value))}
-            className="rounded-xl border p-2 text-sm"
-          >
-            <option value={10}>10 mi</option>
-            <option value={25}>25 mi</option>
-            <option value={50}>50 mi</option>
           </select>
         )}
       </div>
 
-      {/* Nearby geolocation status (vendors tab) */}
-      {tab === "vendors" && mode === "nearby" && (
-        <div className="mb-3 text-xs text-gray-600">
-          {coords
-            ? `Showing within ~${radius} miles of your location.`
-            : geoError
-            ? <span className="text-red-600">{geoError}</span>
-            : "Requesting your location…"}
+      {/* Location help */}
+      {tab === "vendors" && mode === "nearby" && !coords && (
+        <div className="mb-3 text-xs text-base-content/80">
+          {geoErr
+            ? `Location error: ${geoErr}. You can switch back to Favorites.`
+            : "Requesting your location… If prompted, please allow access."}
         </div>
       )}
 
@@ -239,9 +223,7 @@ export default function Browse() {
           onPageChange={setPage}
         >
           <div className="grid grid-cols-1 gap-3">
-            {vendors?.data.map((v) => (
-              <VendorCard key={v.id} vendor={v} />
-            ))}
+            {vendors?.data.map((v) => <VendorCard key={v.id} vendor={v} />)}
           </div>
         </ListShell>
       ) : (
@@ -254,9 +236,7 @@ export default function Browse() {
           onPageChange={setPage}
         >
           <div className="grid grid-cols-1 gap-3">
-            {products?.data.map((p) => (
-              <ProductCard key={p.id} product={p} />
-            ))}
+            {products?.data.map((p) => <ProductCard key={p.id} product={p} />)}
           </div>
         </ListShell>
       )}
@@ -280,30 +260,30 @@ function ListShell(props: {
 }) {
   const { loading, error, children, total, page = 1, lastPage = 1, onPageChange } = props;
 
-  if (loading) return <div className="py-10 text-center text-sm text-gray-600">Loading…</div>;
-  if (error) return <div className="py-10 text-center text-sm text-red-600">{error}</div>;
-  if (!total) return <div className="py-10 text-center text-sm text-gray-600">No results</div>;
+  if (loading) return <div className="py-10 text-center text-sm text-base-content/80">Loading…</div>;
+  if (error) return <div className="py-10 text-center text-sm text-error">{error}</div>;
+  if (!total) return <div className="py-10 text-center text-sm text-base-content/80">No results</div>;
 
   return (
     <div>
-      <div className="text-xs text-gray-500 mb-2">{total} results</div>
+      <div className="text-xs text-base-content/60 mb-2">{total} results</div>
       {children}
       {lastPage > 1 && (
         <div className="flex items-center justify-center gap-2 mt-4">
           <button
             disabled={page <= 1}
             onClick={() => onPageChange(page - 1)}
-            className="px-3 py-1 text-sm rounded border disabled:opacity-50"
+            className="px-3 py-1 text-sm rounded border border-base-300 bg-base-100
+                       hover:bg-base-200 disabled:opacity-50"
           >
             Prev
           </button>
-          <div className="text-sm">
-            Page {page} / {lastPage}
-          </div>
+          <div className="text-sm">Page {page} / {lastPage}</div>
           <button
             disabled={page >= lastPage}
             onClick={() => onPageChange(page + 1)}
-            className="px-3 py-1 text-sm rounded border disabled:opacity-50"
+            className="px-3 py-1 text-sm rounded border border-base-300 bg-base-100
+                       hover:bg-base-200 disabled:opacity-50"
           >
             Next
           </button>
@@ -313,22 +293,15 @@ function ListShell(props: {
   );
 }
 
-/** Fetch vendor options for the Products vendor filter (lightweight, with=none) */
 function useVendorOptions() {
   const [opts, setOpts] = useState<Vendor[]>([]);
-
   useEffect(() => {
     let cancelled = false;
-
     api
       .get("/vendors", { params: { per_page: 200, with: "none" } })
       .then((r) => !cancelled && setOpts(r.data?.data ?? []))
       .catch(() => void 0);
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
-
   return useMemo(() => opts, [opts]);
 }

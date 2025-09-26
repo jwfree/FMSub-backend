@@ -42,16 +42,18 @@ export default function ProductCard({ product, to, actions }: Props) {
   const href = to ?? `/products/${product.id}`;
   const isLink = to !== null; // null => non-link card
 
+  const cardClass =
+    "block w-full text-left rounded-2xl shadow p-4 bg-base-100 " +
+    "hover:shadow-md transition focus:outline-none " +
+    "focus:ring-2 focus:ring-[--color-primary]";
+
   const CardShell: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     isLink ? (
-      <Link
-        to={href}
-        className="block w-full text-left rounded-2xl shadow p-4 bg-white hover:shadow-md transition"
-      >
+      <Link to={href} className={cardClass} aria-label={product.name}>
         {children}
       </Link>
     ) : (
-      <div className="block w-full text-left rounded-2xl shadow p-4 bg-white">
+      <div className="block w-full text-left rounded-2xl shadow p-4 bg-base-100">
         {children}
       </div>
     );
@@ -64,23 +66,24 @@ export default function ProductCard({ product, to, actions }: Props) {
             <img
               src={product.image_url}
               alt={product.name}
-              className="w-14 h-14 rounded object-cover border"
+              className="w-14 h-14 rounded object-cover border border-base-300 bg-base-200"
               onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = "none";
+                const img = e.currentTarget as HTMLImageElement;
+                img.style.display = "none";
               }}
             />
           )}
           <div>
-            <h3 className="text-base font-semibold">
+            <h3 className="text-base font-semibold text-base-content">
               {product.name}
               {!(product.active ?? product.is_active ?? true) && (
-                <span className="ml-2 text-xs rounded bg-gray-200 px-1.5 py-0.5 align-middle">
+                <span className="ml-2 text-xs rounded bg-base-200 px-1.5 py-0.5 align-middle text-base-content/80">
                   inactive
                 </span>
               )}
             </h3>
             {product.vendor && (
-              <div className="text-xs text-gray-600 mt-0.5">
+              <div className="text-xs text-base-content/80 mt-0.5">
                 {product.vendor.name}
               </div>
             )}
@@ -88,29 +91,48 @@ export default function ProductCard({ product, to, actions }: Props) {
         </div>
 
         {!!cheapest?.price_cents && (
-          <div className="text-sm font-medium shrink-0">
-            {centsToDollars(cheapest.price_cents)}
+        <div className="text-sm font-semibold shrink-0 text-[--color-primary]">
+              {centsToDollars(cheapest.price_cents)}
           </div>
         )}
       </div>
 
       {product.description && (
-        <p className="text-sm text-gray-700 mt-2 line-clamp-2">{product.description}</p>
+        <p className="text-sm text-base-content/90 mt-2 line-clamp-2">
+          {product.description}
+        </p>
       )}
 
       {actions && (
         <div
           className="mt-2 flex justify-end items-center gap-2"
-          // GLOBAL FIX: prevent card navigation when clicking action buttons/links
-          onClick={isLink ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}
-          onMouseDown={isLink ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}
-          onKeyDown={isLink ? (e) => {
-            // also guard against Enter/Space on buttons inside actions
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              e.stopPropagation();
-            }
-          } : undefined}
+          // Prevent card navigation when clicking action buttons/links
+          onClick={
+            isLink
+              ? (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              : undefined
+          }
+          onMouseDown={
+            isLink
+              ? (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              : undefined
+          }
+          onKeyDown={
+            isLink
+              ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }
+              : undefined
+          }
         >
           {actions}
         </div>
