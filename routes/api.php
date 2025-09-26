@@ -48,6 +48,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Become a vendor (onboarding)
     Route::post('/vendors', [VendorOnboardingController::class, 'store']);
+
+    // Vendor favorites
+    Route::post('/vendors/{vendor}/favorite',  [\App\Http\Controllers\VendorFavoritesController::class, 'store']);
+    Route::delete('/vendors/{vendor}/favorite',[\App\Http\Controllers\VendorFavoritesController::class, 'destroy']);
+    Route::get('/my/vendors/favorites',        [\App\Http\Controllers\VendorFavoritesController::class, 'index']);    
+
 });
 
 // ---------------------------------------------------------------------

@@ -40,19 +40,20 @@ export default function ProductCard({ product, to, actions }: Props) {
     : undefined;
 
   const href = to ?? `/products/${product.id}`;
+  const isLink = to !== null; // null => non-link card
 
   const CardShell: React.FC<{ children: React.ReactNode }> = ({ children }) =>
-    to === null ? (
-      <div className="block w-full text-left rounded-2xl shadow p-4 bg-white">
-        {children}
-      </div>
-    ) : (
+    isLink ? (
       <Link
         to={href}
         className="block w-full text-left rounded-2xl shadow p-4 bg-white hover:shadow-md transition"
       >
         {children}
       </Link>
+    ) : (
+      <div className="block w-full text-left rounded-2xl shadow p-4 bg-white">
+        {children}
+      </div>
     );
 
   return (
@@ -64,7 +65,9 @@ export default function ProductCard({ product, to, actions }: Props) {
               src={product.image_url}
               alt={product.name}
               className="w-14 h-14 rounded object-cover border"
-              onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
             />
           )}
           <div>
@@ -96,7 +99,21 @@ export default function ProductCard({ product, to, actions }: Props) {
       )}
 
       {actions && (
-        <div className="mt-2 flex justify-end items-center gap-2">{actions}</div>
+        <div
+          className="mt-2 flex justify-end items-center gap-2"
+          // GLOBAL FIX: prevent card navigation when clicking action buttons/links
+          onClick={isLink ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}
+          onMouseDown={isLink ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}
+          onKeyDown={isLink ? (e) => {
+            // also guard against Enter/Space on buttons inside actions
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          } : undefined}
+        >
+          {actions}
+        </div>
       )}
     </CardShell>
   );

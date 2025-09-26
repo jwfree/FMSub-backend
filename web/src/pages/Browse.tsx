@@ -1,3 +1,4 @@
+// web/src/pages/Browse.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import VendorCard, { type Vendor } from "../components/VendorCard";
@@ -10,8 +11,14 @@ type Page<T> = {
   total: number;
 };
 
+type Mode = "favorites" | "nearby";
+
 export default function Browse() {
   const [tab, setTab] = useState<"vendors" | "products">("vendors");
+
+  // Favorites vs Nearby toggle — default to favorites if logged in
+  const token = localStorage.getItem("token");
+  const [mode, setMode] = useState<Mode>(token ? "favorites" : "nearby");
 
   // shared UI state
   const [q, setQ] = useState("");
@@ -29,15 +36,60 @@ export default function Browse() {
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState<string | null>(null);
 
-  // fetch vendors (for list and for the product filter dropdown)
+  // nearby controls (vendors only for now)
+  const [radius, setRadius] = useState<number>(10); // miles
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoError, setGeoError] = useState<string | null>(null);
+
+  // Ask for geolocation when switching into "nearby"
+  useEffect(() => {
+    if (mode !== "nearby") return;
+    let cancelled = false;
+
+    if (!("geolocation" in navigator)) {
+      setGeoError("Geolocation is not supported on this device.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (cancelled) return;
+        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGeoError(null);
+      },
+      (e) => {
+        if (cancelled) return;
+        setGeoError(e.message || "Unable to get location.");
+        setCoords(null);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode]);
+
+  // fetch vendors
   useEffect(() => {
     if (tab !== "vendors") return;
+    // If nearby is selected but we don't yet have coords (and no error), wait.
+    if (mode === "nearby" && !coords && !geoError) return;
+
     let cancelled = false;
     setVendorsLoading(true);
     setVendorsError(null);
 
-    const params: Record<string, any> = { per_page: perPage, page };
+    const params: Record<string, any> = { per_page: perPage, page, with: "none" };
     if (q.trim()) params.q = q.trim();
+
+    if (mode === "favorites") {
+      params.favorites = 1; // backend will 401 if not authed
+    } else if (mode === "nearby" && coords) {
+      params.lat = coords.lat;
+      params.lng = coords.lng;
+      params.radius_miles = radius;
+    }
 
     api
       .get<Page<Vendor>>("/vendors", { params })
@@ -48,7 +100,7 @@ export default function Browse() {
     return () => {
       cancelled = true;
     };
-  }, [tab, q, page]);
+  }, [tab, q, page, mode, coords, radius, geoError]);
 
   // fetch products
   useEffect(() => {
@@ -61,6 +113,11 @@ export default function Browse() {
     if (q.trim()) params.q = q.trim();
     if (vendorIdFilter !== "all") params.vendor_id = vendorIdFilter;
 
+    // Favorites for products (requires backend support: favorite_vendor_only=1)
+    if (mode === "favorites") {
+      params.favorite_vendor_only = 1;
+    }
+
     api
       .get<Page<Product>>("/products", { params })
       .then((r) => !cancelled && setProducts(r.data))
@@ -70,7 +127,7 @@ export default function Browse() {
     return () => {
       cancelled = true;
     };
-  }, [tab, q, page, vendorIdFilter]);
+  }, [tab, q, page, vendorIdFilter, mode]);
 
   // used to populate vendor filter on Products tab
   const vendorOptions = useVendorOptions();
@@ -78,28 +135,49 @@ export default function Browse() {
   // reset page when filters change
   useEffect(() => {
     setPage(1);
-  }, [tab, q, vendorIdFilter]);
+  }, [tab, q, vendorIdFilter, mode, radius, coords?.lat, coords?.lng]);
 
   return (
     <div className="mx-auto max-w-3xl p-4">
-      {/* Tabs */}
-      <div className="flex rounded-xl bg-gray-100 p-1 mb-4">
-        <button
-          className={`flex-1 py-2 text-sm rounded-lg ${
-            tab === "vendors" ? "bg-white shadow font-medium" : "text-gray-600"
-          }`}
-          onClick={() => setTab("vendors")}
-        >
-          Vendors
-        </button>
-        <button
-          className={`flex-1 py-2 text-sm rounded-lg ${
-            tab === "products" ? "bg-white shadow font-medium" : "text-gray-600"
-          }`}
-          onClick={() => setTab("products")}
-        >
-          Products
-        </button>
+      {/* Top row: Tabs + Mode toggle */}
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex rounded-xl bg-gray-100 p-1">
+          <button
+            className={`flex-1 py-2 px-3 text-sm rounded-lg ${
+              tab === "vendors" ? "bg-white shadow font-medium" : "text-gray-600"
+            }`}
+            onClick={() => setTab("vendors")}
+          >
+            Vendors
+          </button>
+          <button
+            className={`flex-1 py-2 px-3 text-sm rounded-lg ${
+              tab === "products" ? "bg-white shadow font-medium" : "text-gray-600"
+            }`}
+            onClick={() => setTab("products")}
+          >
+            Products
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setMode("favorites")}
+            className={`rounded px-3 py-1 text-sm border ${
+              mode === "favorites" ? "bg-black text-white" : ""
+            }`}
+          >
+            Favorites
+          </button>
+          <button
+            onClick={() => setMode("nearby")}
+            className={`rounded px-3 py-1 text-sm border ${
+              mode === "nearby" ? "bg-black text-white" : ""
+            }`}
+          >
+            Nearby
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -126,7 +204,29 @@ export default function Browse() {
             ))}
           </select>
         )}
+        {tab === "vendors" && mode === "nearby" && (
+          <select
+            value={radius}
+            onChange={(e) => setRadius(Number(e.target.value))}
+            className="rounded-xl border p-2 text-sm"
+          >
+            <option value={10}>10 mi</option>
+            <option value={25}>25 mi</option>
+            <option value={50}>50 mi</option>
+          </select>
+        )}
       </div>
+
+      {/* Nearby geolocation status (vendors tab) */}
+      {tab === "vendors" && mode === "nearby" && (
+        <div className="mb-3 text-xs text-gray-600">
+          {coords
+            ? `Showing within ~${radius} miles of your location.`
+            : geoError
+            ? <span className="text-red-600">{geoError}</span>
+            : "Requesting your location…"}
+        </div>
+      )}
 
       {/* Lists */}
       {tab === "vendors" ? (

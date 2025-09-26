@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Routes, Route, Link, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Link, Navigate, useNavigate, useLocation } from "react-router-dom";
 import api from "./lib/api";
 import Browse from "./pages/Browse";
 import ProductDetail from "./pages/ProductDetail";
@@ -54,30 +54,36 @@ function useAuth() {
     setMe(null);
   };
 
-  // expose setMe so LoginView can notify parent after a successful login
   return { me, loading, login, logout, setMe };
 }
 
 // Header component
 function Header({ me, onLogout }: { me: Me | null; onLogout: () => Promise<void> }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [hasVendor, setHasVendor] = useState(false);
 
   useEffect(() => {
-    let ignore = false;
     async function check() {
       if (!me) { setHasVendor(false); return; }
       try {
-        // backend: allow ?mine=1 to return vendors the user can edit/owns
-        const r = await api.get("/vendors", { params: { per_page: 1, mine: 1, with: "none" } });
-        if (!ignore) setHasVendor((r.data?.data?.length ?? 0) > 0);
-      } catch { if (!ignore) setHasVendor(false); }
+        // Prefer the dedicated endpoint that returns only the user’s vendors
+        const r = await api.get("/my/vendors", { params: { per_page: 1 } });
+        // Handle either paginated or raw array responses
+        const count =
+          (Array.isArray(r.data) ? r.data.length : (r.data?.data?.length ?? 0));
+        setHasVendor(count > 0);
+      } catch {
+        setHasVendor(false);
+      }
     }
     check();
-    return () => { ignore = true; };
   }, [me]);
 
   async function handleLogout() { await onLogout(); navigate("/browse", { replace: true }); }
+
+  // Preserve current path in ?next= when sending to login
+  const next = encodeURIComponent(location.pathname + location.search);
 
   return (
     <header className="sticky top-0 z-10 bg-white border-b">
@@ -93,7 +99,7 @@ function Header({ me, onLogout }: { me: Me | null; onLogout: () => Promise<void>
               <button onClick={handleLogout} className="rounded px-3 py-1 border text-xs hover:bg-gray-50">Logout</button>
             </div>
           ) : (
-            <Link to="/login" className="rounded px-3 py-1 border text-xs hover:bg-gray-50">Login</Link>
+            <Link to={`/login?next=${next}`} className="rounded px-3 py-1 border text-xs hover:bg-gray-50">Login</Link>
           )}
         </nav>
       </div>
@@ -107,7 +113,7 @@ function Shell({
   children,
 }: {
   me: Me | null;
-  onLogout: () => Promise<void>;   // <-- was () => void
+  onLogout: () => Promise<void>;
   children: React.ReactNode;
 }) {
   return (
@@ -119,24 +125,27 @@ function Shell({
 }
 
 function LoginView({ onLoggedIn }: { onLoggedIn: (me: Me) => void }) {
-  const [identity, setIdentity] = useState("admin@example.com"); // can be phone like "555-123-4567"
+  const [identity, setIdentity] = useState("admin@example.com"); // email or phone
   const [password, setPassword] = useState("secret123");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const next = new URLSearchParams(location.search).get("next") || "/browse";
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
     setLoading(true);
     try {
+      // backend supports { identity, password }
       const res = await api.post("/auth/login", { identity, password });
       const token = res.data.token as string;
       localStorage.setItem("token", token);
       api.defaults.headers.common.Authorization = `Bearer ${token}`;
       const meRes = await api.get("/me");
       onLoggedIn(meRes.data);
-      navigate("/browse", { replace: true });
+      navigate(next, { replace: true });
     } catch (e: any) {
       setErr(e?.response?.data?.message || "Login failed");
     } finally {
@@ -178,9 +187,107 @@ function LoginView({ onLoggedIn }: { onLoggedIn: (me: Me) => void }) {
           {loading ? "Signing in…" : "Sign in"}
         </button>
       </form>
+
+      {/* New: signup link */}
+      <div className="text-xs text-gray-700 mt-3">
+        Don’t have an account?{" "}
+        <Link className="underline" to={`/signup?next=${encodeURIComponent(next)}`}>
+          Sign up
+        </Link>
+      </div>
+
       <p className="text-xs text-gray-500 mt-3">
         Tip: you can use your email or your mobile number.
       </p>
+    </div>
+  );
+}
+
+// Simple signup view: name (optional), email/phone, password
+function SignupView({ onSignedUp }: { onSignedUp: (me: Me) => void }) {
+  const [name, setName] = useState("");
+  const [identity, setIdentity] = useState(""); // email or phone
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const next = new URLSearchParams(location.search).get("next") || "/browse";
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setLoading(true);
+    try {
+      // backend route exists: /auth/signup
+      // We’ll send { identity, password, name } so it can handle email or phone.
+      await api.post("/auth/signup", { identity, password, name: name || undefined });
+
+      // Auto-login right after sign-up
+      const loginRes = await api.post("/auth/login", { identity, password });
+      const token = loginRes.data.token as string;
+      localStorage.setItem("token", token);
+      api.defaults.headers.common.Authorization = `Bearer ${token}`;
+      const meRes = await api.get("/me");
+      onSignedUp(meRes.data);
+      navigate(next, { replace: true });
+    } catch (e: any) {
+      setErr(e?.response?.data?.message || "Sign up failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-md p-6">
+      <h1 className="text-lg font-semibold mb-3">Sign up</h1>
+      <form onSubmit={submit} className="space-y-3">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Name (optional)</label>
+          <input
+            className="w-full rounded border px-3 py-2 text-sm"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Jane Doe"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Email or mobile</label>
+          <input
+            className="w-full rounded border px-3 py-2 text-sm"
+            value={identity}
+            onChange={(e) => setIdentity(e.target.value)}
+            placeholder="name@example.com or 555-123-4567"
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Password</label>
+          <input
+            type="password"
+            className="w-full rounded border px-3 py-2 text-sm"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            required
+          />
+        </div>
+        {err && <p className="text-xs text-red-600">{err}</p>}
+        <button
+          type="submit"
+          className="w-full rounded bg-black text-white py-2 text-sm disabled:opacity-60"
+          disabled={loading}
+        >
+          {loading ? "Creating account…" : "Create account"}
+        </button>
+      </form>
+
+      <div className="text-xs text-gray-700 mt-3">
+        Already have an account?{" "}
+        <Link className="underline" to={`/login?next=${encodeURIComponent(next)}`}>
+          Log in
+        </Link>
+      </div>
     </div>
   );
 }
@@ -196,7 +303,6 @@ export default function App() {
     );
   }
 
-  // Router is in main.tsx
   return (
     <Shell
       me={me}
@@ -208,6 +314,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/browse" replace />} />
         <Route path="/browse" element={<Browse />} />
         <Route path="/login" element={<LoginView onLoggedIn={setMe} />} />
+        <Route path="/signup" element={<SignupView onSignedUp={setMe} />} />
         <Route path="/products/:id" element={<ProductDetail />} />
         <Route path="/vendors/:id" element={<VendorDetail />} />
         <Route path="/subscriptions" element={<MySubscriptions />} />

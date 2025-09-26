@@ -1,10 +1,23 @@
 // web/src/pages/VendorDetail.tsx
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
 import ProductCard from "../components/ProductCard";
 import type { Product } from "../components/ProductCard";
 import Lightbox from "../components/Lightbox";
+
+type Location = {
+  id: number;
+  label: string;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+};
 
 type Vendor = {
   id: number;
@@ -17,11 +30,15 @@ type Vendor = {
   photo_url?: string | null;
   active: boolean;
   can_edit?: boolean;
+  is_favorite?: boolean;
   products?: Product[];
+  locations?: Location[];
 };
 
 export default function VendorDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
+
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -38,23 +55,44 @@ export default function VendorDetail() {
   const [description, setDescription] = useState("");
   const [flyerText, setFlyerText] = useState("");
 
+  // address fields (Primary location)
+  const [address1, setAddress1] = useState("");
+  const [address2, setAddress2] = useState("");
+  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("");
+  const [postal, setPostal] = useState("");
+  const [country, setCountry] = useState("US");
+
   // lightboxes
   const [showPhoto, setShowPhoto] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
 
+  async function fetchVendor() {
+    const r = await api.get(`/vendors/${id}`, { params: { include_inactive: 1 } });
+    return r.data as Vendor;
+  }
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api
-      .get(`/vendors/${id}`)
-      .then((r) => {
+    fetchVendor()
+      .then((data) => {
         if (cancelled) return;
-        setVendor(r.data);
-        setName(r.data?.name ?? "");
-        setContactEmail(r.data?.contact_email ?? "");
-        setContactPhone(r.data?.contact_phone ?? "");
-        setDescription(r.data?.description ?? "");
-        setFlyerText(r.data?.flyer_text ?? "");
+        setVendor(data);
+        setName(data?.name ?? "");
+        setContactEmail(data?.contact_email ?? "");
+        setContactPhone(data?.contact_phone ?? "");
+        setDescription(data?.description ?? "");
+        setFlyerText(data?.flyer_text ?? "");
+
+        // hydrate address fields from first/primary location (if any)
+        const L = data?.locations?.[0];
+        setAddress1(L?.address_line1 ?? "");
+        setAddress2(L?.address_line2 ?? "");
+        setCity(L?.city ?? "");
+        setRegion(L?.region ?? "");
+        setPostal(L?.postal_code ?? "");
+        setCountry((L?.country ?? "US").toUpperCase());
       })
       .catch((e) => !cancelled && setErr(e?.response?.data?.message || e.message))
       .finally(() => !cancelled && setLoading(false));
@@ -67,24 +105,35 @@ export default function VendorDetail() {
     if (!vendor) return;
     setSaving(true);
     try {
-      const form = new FormData();
-      if (name !== vendor.name) form.append("name", name);
-      if (contactEmail !== (vendor.contact_email ?? ""))
-        form.append("contact_email", contactEmail || "");
-      if (contactPhone !== (vendor.contact_phone ?? ""))
-        form.append("contact_phone", contactPhone || "");
-      if ((description ?? "") !== (vendor.description ?? ""))
-        form.append("description", description || "");
-      if ((flyerText ?? "") !== (vendor.flyer_text ?? ""))
-        form.append("flyer_text", flyerText || "");
-      if (bannerFile) form.append("banner", bannerFile);
-      if (photoFile) form.append("photo", photoFile);
+      // 1) PATCH vendor (including address fields) — backend will geocode if address changed
+      const patchBody: any = {
+        name,
+        contact_email: contactEmail || "",
+        contact_phone: contactPhone || "",
+        description: description || "",
+        flyer_text: flyerText || "",
+        address_line1: address1 || null,
+        address_line2: address2 || null,
+        city: city || null,
+        region: region || null,
+        postal_code: postal || null,
+        country: (country || "US").toUpperCase(),
+      };
+      const patched = await api.patch(`/vendors/${vendor.id}`, patchBody);
 
-      const res = await api.post(`/vendors/${vendor.id}/assets`, form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      // 2) Upload images (optional)
+      let finalVendor = patched.data as Vendor;
+      if (bannerFile || photoFile) {
+        const form = new FormData();
+        if (bannerFile) form.append("banner", bannerFile);
+        if (photoFile) form.append("photo", photoFile);
+        const res = await api.post(`/vendors/${vendor.id}/assets`, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        finalVendor = res.data;
+      }
 
-      setVendor(res.data);
+      setVendor(finalVendor);
       setOpenEdit(false);
       setBannerFile(null);
       setPhotoFile(null);
@@ -98,16 +147,45 @@ export default function VendorDetail() {
     }
   }
 
+  // --- Favorites (follow/heart) ---
+  async function toggleFavorite() {
+    if (!vendor) return;
+
+    // optimistic flip
+    const desired = !(vendor.is_favorite ?? false);
+    setVendor({ ...vendor, is_favorite: desired });
+
+    try {
+      if (desired) {
+        await api.post(`/vendors/${vendor.id}/favorite`);
+      } else {
+        await api.delete(`/vendors/${vendor.id}/favorite`);
+      }
+    } catch (e: any) {
+      // revert on error
+      setVendor({ ...vendor, is_favorite: !desired });
+
+      if (e?.response?.status === 401) {
+        navigate(`/login?next=/vendors/${vendor.id}`, { replace: true });
+        return;
+      }
+      setToast(e?.response?.data?.message || "Could not update favorite");
+      setTimeout(() => setToast(null), 1500);
+    }
+  }
+
   // Actions on products
   async function toggleActive(productId: number, desired: boolean) {
     if (!vendor) return;
-    const next = {
+
+    // optimistic UI
+    setVendor({
       ...vendor,
       products: (vendor.products ?? []).map((p) =>
         p.id === productId ? { ...p, active: desired, is_active: desired } : p
       ),
-    };
-    setVendor(next as Vendor);
+    } as Vendor);
+
     try {
       await api
         .patch(`/vendors/${vendor.id}/products/${productId}`, { active: desired })
@@ -117,16 +195,17 @@ export default function VendorDetail() {
           });
         });
     } catch {
-      const r = await api.get(`/vendors/${vendor.id}`);
-      setVendor(r.data);
+      const v = await fetchVendor();
+      setVendor(v);
       alert("Failed to change status");
     }
   }
 
   async function deleteProduct(productId: number) {
     if (!vendor) return;
-    if (!confirm("Delete this product? This cannot be undone.")) return;
+    if (!confirm("Delete this product permanently? This cannot be undone.")) return;
 
+    // optimistic UI
     setVendor({
       ...vendor,
       products: (vendor.products ?? []).filter((p) => p.id !== productId),
@@ -135,8 +214,8 @@ export default function VendorDetail() {
     try {
       await api.delete(`/vendors/${vendor.id}/products/${productId}`);
     } catch {
-      const r = await api.get(`/vendors/${vendor.id}`);
-      setVendor(r.data);
+      const v = await fetchVendor();
+      setVendor(v);
       alert("Delete failed");
     }
   }
@@ -151,13 +230,14 @@ export default function VendorDetail() {
   const flyerHref = `${API}/vendors/${vendor.id}/flyer.pdf`;
   const qrHref = `${API}/vendors/${vendor.id}/qr.png`;
 
-  // sort: active first, then by name
-  const productsSorted = [...(vendor.products ?? [])].sort((a, b) => {
-    const aa = (a.active ?? a.is_active ?? true) ? 1 : 0;
-    const bb = (b.active ?? b.is_active ?? true) ? 1 : 0;
-    if (bb !== aa) return bb - aa;
-    return (a.name || "").localeCompare(b.name || "");
-  });
+  // Split lists
+  const all = [...(vendor.products ?? [])];
+  const activeProducts = all
+    .filter((p) => (p.active ?? p.is_active ?? true))
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const inactiveProducts = all
+    .filter((p) => !(p.active ?? p.is_active ?? true))
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
   return (
     <div className="mx-auto max-w-3xl p-4">
@@ -207,14 +287,30 @@ export default function VendorDetail() {
             </Lightbox>
           </>
         )}
+
         <div className="flex-1">
-          <h1 className="text-xl font-semibold">{vendor.name}</h1>
-          <div className="text-xs text-gray-600 mt-1 space-y-0.5">
-            {vendor.contact_email && <div>{vendor.contact_email}</div>}
-            {vendor.contact_phone && <div>{formatPhone(vendor.contact_phone)}</div>}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-semibold">{vendor.name}</h1>
+              <div className="text-xs text-gray-600 mt-1 space-y-0.5">
+                {vendor.contact_email && <div>{vendor.contact_email}</div>}
+                {vendor.contact_phone && <div>{formatPhone(vendor.contact_phone)}</div>}
+              </div>
+            </div>
+
+            {/* Heart / Follow */}
+            <button
+              aria-label={(vendor.is_favorite ? "Unfollow " : "Follow ") + vendor.name}
+              onClick={toggleFavorite}
+              className="select-none rounded-full border px-3 py-1 text-sm leading-none hover:bg-gray-50"
+              title={vendor.is_favorite ? "Unfollow" : "Follow"}
+            >
+              <span className="text-lg align-middle">
+                {vendor.is_favorite ? "♥" : "♡"}
+              </span>
+            </button>
           </div>
 
-          {/* Centered description block */}
           {(vendor.flyer_text || vendor.description) && (
             <div className="mt-4 text-xl text-center">
               {vendor.flyer_text || vendor.description}
@@ -286,6 +382,62 @@ export default function VendorDetail() {
             </div>
           </div>
 
+          {/* Vendor Address (Primary location) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Address line 1</label>
+              <input
+                className="w-full rounded border p-2 text-sm"
+                value={address1}
+                onChange={(e) => setAddress1(e.target.value)}
+                placeholder="123 Main St"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Address line 2</label>
+              <input
+                className="w-full rounded border p-2 text-sm"
+                value={address2}
+                onChange={(e) => setAddress2(e.target.value)}
+                placeholder="Suite / Apt"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">City</label>
+              <input
+                className="w-full rounded border p-2 text-sm"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">State/Region</label>
+              <input
+                className="w-full rounded border p-2 text-sm"
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Postal code</label>
+              <input
+                className="w-full rounded border p-2 text-sm"
+                value={postal}
+                onChange={(e) => setPostal(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">Country (2-letter)</label>
+              <input
+                className="w-full rounded border p-2 text-sm"
+                value={country}
+                onChange={(e) => setCountry(e.target.value.toUpperCase())}
+                maxLength={2}
+                placeholder="US"
+              />
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-600 mb-1">Banner image</label>
@@ -330,12 +482,6 @@ export default function VendorDetail() {
             >
               Open QR
             </a>
-            <Link
-              to={`/vendors/${vendor.id}/products/new`}
-              className="rounded border px-4 py-2 text-sm"
-            >
-              + Product
-            </Link>
           </div>
         </div>
       )}
@@ -353,17 +499,54 @@ export default function VendorDetail() {
         )}
       </div>
 
-      {/* Products list */}
+      {/* Active products */}
       <div className="grid grid-cols-1 gap-3">
-        {productsSorted.map((p) => {
-          const isActive = p.active ?? p.is_active ?? true;
-          return (
-            <ProductCard
-              key={p.id}
-              product={p}
-              to={`/products/${p.id}`}
-              actions={
-                vendor.can_edit ? (
+        {activeProducts.map((p) => (
+          <ProductCard
+            key={p.id}
+            product={p}
+            to={`/products/${p.id}`}
+            actions={
+              vendor.can_edit ? (
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    to={`/vendors/${vendor.id}/products/${p.id}/edit`}
+                    className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                  >
+                    ✎ <span className="hidden sm:inline">Edit</span>
+                  </Link>
+                  <button
+                    onClick={() => toggleActive(p.id, false)}
+                    className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                  >
+                    Pause
+                  </button>
+                  <button
+                    onClick={() => deleteProduct(p.id)}
+                    className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
+                  >
+                    ✕ <span className="hidden sm:inline">Delete</span>
+                  </button>
+                </div>
+              ) : undefined
+            }
+          />
+        ))}
+      </div>
+
+      {/* Inactive products (only for vendor) */}
+      {vendor.can_edit && inactiveProducts.length > 0 && (
+        <>
+          <h3 className="mt-6 mb-2 text-xs font-semibold text-gray-600 uppercase tracking-wide">
+            Inactive
+          </h3>
+          <div className="grid grid-cols-1 gap-3 opacity-90">
+            {inactiveProducts.map((p) => (
+              <ProductCard
+                key={p.id}
+                product={p}
+                to={`/products/${p.id}`}
+                actions={
                   <div className="flex flex-wrap gap-2">
                     <Link
                       to={`/vendors/${vendor.id}/products/${p.id}/edit`}
@@ -371,14 +554,12 @@ export default function VendorDetail() {
                     >
                       ✎ <span className="hidden sm:inline">Edit</span>
                     </Link>
-
                     <button
-                      onClick={() => toggleActive(p.id, !isActive)}
+                      onClick={() => toggleActive(p.id, true)}
                       className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
                     >
-                      {isActive ? "Pause" : "Activate"}
+                      Activate
                     </button>
-
                     <button
                       onClick={() => deleteProduct(p.id)}
                       className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
@@ -386,12 +567,12 @@ export default function VendorDetail() {
                       ✕ <span className="hidden sm:inline">Delete</span>
                     </button>
                   </div>
-                ) : undefined
-              }
-            />
-          );
-        })}
-      </div>
+                }
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {toast && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 rounded bg-black/80 text-white text-xs px-3 py-2">

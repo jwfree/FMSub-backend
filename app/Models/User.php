@@ -31,4 +31,9 @@ class User extends Authenticatable
     {
         return $this->hasOne(Customer::class);
     }
+
+    public function favoriteVendors()
+    {
+        return $this->belongsToMany(Vendor::class, 'vendor_favorites')->withTimestamps();
+    }
 }

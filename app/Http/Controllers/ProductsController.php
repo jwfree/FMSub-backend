@@ -13,27 +13,44 @@ class ProductsController extends Controller
      */
     public function index(Request $request)
     {
-        $perPage  = (int) $request->integer('per_page', 20);
-        $q        = trim((string) $request->get('q', ''));
-        $vendorId = $request->get('vendor_id');
+        $perPage     = (int) $request->integer('per_page', 20);
+        $q           = trim((string) $request->get('q', ''));
+        $vendorId    = $request->get('vendor_id');
+        $favorites   = (bool) $request->boolean('favorites', false);
+        $user        = $request->user(); // may be null on public calls
 
-        $query = Product::query()
+        $query = \App\Models\Product::query()
+            // search name/description
             ->when($q !== '', function ($qb) use ($q) {
                 $qb->where(function ($w) use ($q) {
                     $w->where('name', 'like', "%{$q}%")
-                      ->orWhere('description', 'like', "%{$q}%");
+                    ->orWhere('description', 'like', "%{$q}%");
                 });
             })
+
+            // filter by vendor_id if provided
             ->when($vendorId, fn ($qb) => $qb->where('vendor_id', $vendorId))
+
+            // filter to favorite vendors (only if requested and authed)
+            ->when($favorites && $user, function ($qb) use ($user) {
+                $favVendorIds = $user->favoriteVendors()->pluck('vendors.id');
+                // empty list -> no results
+                $qb->whereIn('vendor_id', $favVendorIds->count() ? $favVendorIds : [-1]);
+            })
+
+            // only active products, from active vendors
             ->where('active', true)
             ->whereHas('vendor', fn ($v) => $v->where('active', true))
+
+            // eager loads
             ->with([
                 'vendor:id,name',
                 'variants' => function ($v) {
                     $v->where('active', true)
-                      ->select('id','product_id','name','sku','price_cents','active');
+                    ->select('id','product_id','name','sku','price_cents','active');
                 },
             ])
+
             ->orderBy('name');
 
         return response()->json($query->paginate($perPage));

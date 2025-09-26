@@ -45,7 +45,7 @@ export default function VendorNew() {
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Contact email (optional)</label>
+          <label className="block text-xs text-gray-600 mb-1">Vendor email (optional)</label>
           <input
             type="email"
             className="w-full rounded border px-3 py-2 text-sm"
@@ -55,7 +55,7 @@ export default function VendorNew() {
         </div>
 
         <div>
-          <label className="block text-xs text-gray-600 mb-1">Contact phone (optional)</label>
+          <label className="block text-xs text-gray-600 mb-1">Vendor phone (optional)</label>
           <input
             className="w-full rounded border px-3 py-2 text-sm"
             value={contactPhone}
