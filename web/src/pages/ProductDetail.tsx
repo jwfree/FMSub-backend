@@ -32,6 +32,7 @@ export default function ProductDetail() {
 
   // subscribe form
   const [variantId, setVariantId] = useState<number | "">("");
+  const [quantity, setQuantity] = useState<number>(1);                 // NEW
   const [frequency, setFrequency] =
     useState<"weekly" | "biweekly" | "monthly">("weekly");
   const [startDate, setStartDate] = useState<string>(
@@ -65,13 +66,14 @@ export default function ProductDetail() {
   }, [product, variantId]);
 
   async function onSubscribe() {
-    if (!variantId || !startDate) return;
+    if (!variantId || !startDate || quantity < 1) return;
     setSubmitting(true);
     try {
       await api.post("/subscriptions", {
         product_variant_id: Number(variantId),
         start_date: startDate,
         frequency,
+        quantity,                              // NEW (backend can ignore if not used)
         notes: notes || undefined,
       });
       setToast("Subscription created!");
@@ -93,6 +95,9 @@ export default function ProductDetail() {
   if (err || !product) return <div className="p-4 text-error">{err ?? "Not found"}</div>;
 
   const minPrice = Math.min(...(product.variants || []).map((v) => v.price_cents));
+  const selected = product.variants.find(v => v.id === variantId);
+  const unitPrice = selected?.price_cents ?? (Number.isFinite(minPrice) ? minPrice : undefined);
+  const total = typeof unitPrice === "number" ? (unitPrice * Math.max(1, quantity)) : undefined;
 
   return (
     <div className="mx-auto max-w-2xl p-4">
@@ -129,6 +134,8 @@ export default function ProductDetail() {
       {/* Subscribe box */}
       <div className="mt-6 space-y-3 rounded-xl border border-base-300 p-4">
         <div className="text-sm font-medium text-base-content">Choose an option</div>
+
+        {/* Variant */}
         <select
           value={variantId}
           onChange={(e) => setVariantId(Number(e.target.value))}
@@ -140,6 +147,48 @@ export default function ProductDetail() {
             </option>
           ))}
         </select>
+
+        {/* Quantity (NEW) */}
+        <div>
+          <div className="text-xs text-base-content/80 mb-1">Quantity</div>
+          <div className="flex items-stretch gap-2">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setQuantity(q => Math.max(1, q - 1))}
+              aria-label="Decrease quantity"
+            >
+              −
+            </button>
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={quantity}
+              onChange={(e) => {
+                const n = Math.floor(Number(e.target.value));
+                setQuantity(Number.isFinite(n) && n > 0 ? n : 1);
+              }}
+              className="w-24 rounded-lg border border-base-300 p-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-[--color-primary]"
+            />
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setQuantity(q => q + 1)}
+              aria-label="Increase quantity"
+            >
+              +
+            </button>
+          </div>
+          {typeof unitPrice === "number" && (
+            <div className="mt-1 text-xs text-base-content/70">
+              Unit: ${(unitPrice / 100).toFixed(2)} · Total:{" "}
+              <span className="font-medium">
+                ${(total! / 100).toFixed(2)}
+              </span>
+            </div>
+          )}
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <div>
@@ -176,13 +225,13 @@ export default function ProductDetail() {
           />
         </div>
 
-      <button
-        onClick={onSubscribe}
-        disabled={submitting || !variantId || !startDate}
-        className="w-full rounded-lg btn-primary px-4 py-2 text-primary-content disabled:opacity-60"
-      >
-        {submitting ? "Creating…" : "Subscribe"}
-      </button>
+        <button
+          onClick={onSubscribe}
+          disabled={submitting || !variantId || !startDate || quantity < 1}
+          className="btn btn-primary w-full rounded-lg disabled:opacity-60"
+        >
+          {submitting ? "Creating…" : "Subscribe"}
+        </button>
       </div>
 
       {/* Toast */}

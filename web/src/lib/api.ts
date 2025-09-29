@@ -14,4 +14,34 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+export function createVariant(vendorId: number, productId: number, payload: {
+  sku?: string;
+  name: string;
+  price_cents: number;
+  currency: string;
+  active?: boolean;
+  quantity_per_unit?: number | null;
+  unit_label?: string | null;
+  sort_order?: number;
+}) {
+  return api.post(`/vendors/${vendorId}/products/${productId}/variants`, payload);
+}
+
+export function updateVariant(variantId: number, payload: Partial<{
+  sku: string;
+  name: string;
+  price_cents: number;
+  currency: string;
+  active: boolean;
+  quantity_per_unit: number | null;
+  unit_label: string | null;
+  sort_order: number;
+}>) {
+  return api.patch(`/variants/${variantId}`, payload);
+}
+
+export function deleteVariant(variantId: number) {
+  return api.delete(`/variants/${variantId}`);
+}
+
 export default api;

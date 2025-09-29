@@ -7,6 +7,7 @@ type Subscription = {
   start_date: string;
   frequency: string;
   notes?: string;
+  quantity?: number; // ⇦ NEW
   product?: {
     id: number;
     name: string;
@@ -79,12 +80,16 @@ export default function MySubscriptions() {
 function SubscriptionCard({ sub, inactive }: { sub: Subscription; inactive?: boolean }) {
   const [working, setWorking] = useState(false);
 
+  const qty = typeof sub.quantity === "number" && sub.quantity > 0 ? sub.quantity : 1;
+  const eachCents = sub.product_variant?.price_cents ?? 0;
+  const totalCents = qty * eachCents;
+
   async function action(endpoint: string) {
     setWorking(true);
     try {
       const r = await api.post(`/subscriptions/${sub.id}/${endpoint}`);
       console.log("Updated:", r.data);
-      window.location.reload(); // quick reload; later replace with state update
+      window.location.reload(); // simple refresh for now
     } catch (e) {
       console.error(e);
     } finally {
@@ -100,11 +105,18 @@ function SubscriptionCard({ sub, inactive }: { sub: Subscription; inactive?: boo
           {sub.product?.vendor && (
             <div className="text-xs text-base-content/80">{sub.product.vendor.name}</div>
           )}
+
           {sub.product_variant && (
             <div className="text-xs text-base-content/80 mt-0.5">
-              {sub.product_variant.name} — {centsToDollars(sub.product_variant.price_cents)}
+              {sub.product_variant.name} — {centsToDollars(eachCents)} • Qty: {qty}
+              {qty > 1 && (
+                <span className="ml-1 text-base-content/60">
+                  ({centsToDollars(totalCents)} total)
+                </span>
+              )}
             </div>
           )}
+
           <div className="text-xs text-base-content/60 mt-1">
             Every {sub.frequency}, starting {sub.start_date}
           </div>

@@ -14,6 +14,8 @@ use App\Http\Controllers\VendorOnboardingController;
 use App\Http\Controllers\ProductsController;
 use App\Http\Controllers\LocationsController;
 use App\Http\Controllers\SubscriptionsController;
+use App\Http\Controllers\VariantController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -92,6 +94,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put   ('/vendors/{vendor}/products/{product}',       [VendorProductController::class, 'update'])->whereNumber(['vendor','product']);
         Route::delete('/vendors/{vendor}/products/{product}',       [VendorProductController::class, 'destroy'])->whereNumber(['vendor','product'])->name('vendor.products.destroy');
         Route::post  ('/vendors/{vendor}/products/{product}/image', [VendorProductController::class, 'uploadImage'])->whereNumber(['vendor','product']);
+        Route::patch('/variants/{variant}', [VariantController::class, 'update']);
+        
+        Route::post('/vendors/{vendor}/products/{product}/variants', [\App\Http\Controllers\VariantController::class, 'store'])
+        ->whereNumber(['vendor','product']);
+
+        Route::delete('/variants/{variant}', [\App\Http\Controllers\VariantController::class, 'destroy'])
+        ->whereNumber('variant');
     });
 
     // Subscriptions (MVP)
@@ -100,6 +109,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/subscriptions/{subscription}/pause',  [SubscriptionsController::class, 'pause'])->whereNumber('subscription');
     Route::post('/subscriptions/{subscription}/resume', [SubscriptionsController::class, 'resume'])->whereNumber('subscription');
     Route::post('/subscriptions/{subscription}/cancel', [SubscriptionsController::class, 'cancel'])->whereNumber('subscription');
+
+    
 });
 
 // ---------------------------------------------------------------------

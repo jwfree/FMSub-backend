@@ -30,7 +30,7 @@ class SubscriptionsController extends Controller
     }
 
     // POST /api/subscriptions
-    // body: { product_variant_id, start_date (Y-m-d), frequency (e.g., "weekly"), notes? }
+    // body: { product_variant_id, start_date (Y-m-d), frequency, notes?, quantity? }
     public function store(Request $request)
     {
         $user = Auth::user();
@@ -40,6 +40,7 @@ class SubscriptionsController extends Controller
             'start_date'         => ['required', 'date'],
             'frequency'          => ['required', Rule::in(['weekly','biweekly','monthly'])],
             'notes'              => ['nullable', 'string', 'max:1000'],
+            'quantity'           => ['nullable', 'integer', 'min:1'], // <- NEW
         ]);
 
         $customer = $user->customer;
@@ -60,9 +61,9 @@ class SubscriptionsController extends Controller
             'start_date'         => $data['start_date'],
             'frequency'          => $data['frequency'],
             'notes'              => $data['notes'] ?? null,
+            'quantity'           => $request->integer('quantity', 1), // <- NEW default to 1
         ]);
 
-        // Future: create Stripe Checkout, handle webhook to confirm status.
         return response()->json($sub->load(['product', 'productVariant', 'vendor']), 201);
     }
 

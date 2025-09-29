@@ -9,19 +9,18 @@ class ProductVariant extends Model
 {
     use HasFactory;
 
-    protected $fillable = [
-        'product_id',
-        'name',
-        'sku',
-        'price_cents',
-    ];
+protected $fillable = [
+  'product_id','sku','name','price_cents','currency','active',
+  'quantity_per_unit','unit_label','sort_order'
+];
 
-    protected $casts = [
-        'price_cents' => 'integer',
-    ];
+public function product() {
+  return $this->belongsTo(Product::class);
+}
 
-    public function product()
-    {
-        return $this->belongsTo(Product::class);
-    }
+// app/Models/Product.php
+public function variants() {
+  return $this->hasMany(ProductVariant::class)->orderBy('sort_order')->orderBy('id');
+}
+
 }

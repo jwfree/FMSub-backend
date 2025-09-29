@@ -24,7 +24,6 @@ export default function ThemeSwitcher() {
 
   return (
     <label className="flex items-center gap-2 text-sm">
-      <span className="opacity-70">Theme:</span>
       <select
         className="select select-sm bg-base-100"
         value={theme}
