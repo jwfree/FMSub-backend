@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import api, { getMyFavoriteVendors, favoriteVendor, unfavoriteVendor } from "../lib/api";
 import VendorCard, { type Vendor } from "../components/VendorCard";
 import ProductCard, { type Product } from "../components/ProductCard";
@@ -14,11 +14,18 @@ export default function Browse() {
   const [tab, setTab] = useState<"vendors" | "products">("vendors");
   const [authPrompt, setAuthPrompt] = useState(false);
   const nextUrl = `${window.location.pathname}${window.location.search}`;
+
+  const isAuthed = !!localStorage.getItem("token");
+
   // ---- vendor mode + geolocation ----
-  const [mode, setMode] = useState<"favorites" | "nearby" | "all">("favorites");
+  const [mode, setMode] = useState<"favorites" | "nearby" | "all">(
+    isAuthed ? "favorites" : "nearby"
+  );
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [radius, setRadius] = useState<number>(10);
   const [geoErr, setGeoErr] = useState<string | null>(null);
+  const autoSwitchedRef = useRef(false);
+  const [autoSwitchNote, setAutoSwitchNote] = useState<string | null>(null);
 
   // shared UI state
   const [q, setQ] = useState("");
@@ -61,13 +68,25 @@ export default function Browse() {
   // fetch vendors
   useEffect(() => {
     if (tab !== "vendors") return;
+
     let cancelled = false;
     setVendorsLoading(true);
     setVendorsError(null);
 
+    // If logged-out user somehow lands on "favorites", nudge them to Nearby
+    if (!isAuthed && mode === "favorites") {
+      setMode("nearby");
+      setVendorsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (mode === "nearby" && !coords) {
       setVendorsLoading(false);
-      return () => { cancelled = true; };
+      return () => {
+        cancelled = true;
+      };
     }
 
     const params: Record<string, any> = { per_page: perPage, page };
@@ -85,15 +104,30 @@ export default function Browse() {
     ])
       .then(([vRes, favIds]) => {
         if (cancelled) return;
+
         const favSet = new Set(favIds as number[]);
         setFavoriteIds(favSet);
 
-        // Base list coming from the server
         const base = vRes.data?.data ?? [];
 
-        // Apply client-side favorites filter if needed
         const filtered =
           mode === "favorites" ? base.filter((v) => favSet.has(v.id)) : base;
+
+        // If logged-out + Nearby + empty + no search -> auto switch to All once
+        if (
+          !isAuthed &&
+          mode === "nearby" &&
+          !q.trim() &&
+          (vRes.data?.total ?? 0) === 0 &&
+          !autoSwitchedRef.current
+        ) {
+          autoSwitchedRef.current = true;
+          setMode("all");
+          setAutoSwitchNote("No nearby vendors found — showing all vendors instead.");
+          return; // let next effect run
+        } else {
+          setAutoSwitchNote(null);
+        }
 
         // Recompute pagination client-side after filtering so the counts are correct
         const total = filtered.length;
@@ -111,8 +145,10 @@ export default function Browse() {
       .catch((e) => !cancelled && setVendorsError(msg(e)))
       .finally(() => !cancelled && setVendorsLoading(false));
 
-    return () => { cancelled = true; };
-  }, [tab, q, page, mode, coords, radius]);
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, q, page, mode, coords, radius, isAuthed]);
 
   // fetch products
   useEffect(() => {
@@ -153,7 +189,8 @@ export default function Browse() {
     // optimistic UI
     setFavoriteIds((prev) => {
       const copy = new Set(prev);
-      if (next) copy.add(vendorId); else copy.delete(vendorId);
+      if (next) copy.add(vendorId);
+      else copy.delete(vendorId);
       return copy;
     });
 
@@ -164,7 +201,8 @@ export default function Browse() {
       // revert on failure
       setFavoriteIds((prev) => {
         const copy = new Set(prev);
-        if (next) copy.delete(vendorId); else copy.add(vendorId);
+        if (next) copy.delete(vendorId);
+        else copy.add(vendorId);
         return copy;
       });
 
@@ -239,9 +277,12 @@ export default function Browse() {
                 className="rounded-xl border border-base-300 bg-base-100 p-2 text-sm
                           focus:outline-none focus:ring-2 focus:ring-[--color-primary]
                           focus:border-[--color-primary]"
+                aria-label="Radius in miles"
               >
                 {[5, 10, 15, 25, 50].map((m) => (
-                  <option key={m} value={m}>{m} mi</option>
+                  <option key={m} value={m}>
+                    {m} mi
+                  </option>
                 ))}
               </select>
             )}
@@ -257,7 +298,6 @@ export default function Browse() {
             >
               All
             </button>
-
           </div>
         ) : (
           <select
@@ -278,21 +318,17 @@ export default function Browse() {
           </select>
         )}
       </div>
+
+      {/* Auth prompt */}
       {authPrompt && (
         <div className="mb-3 rounded-xl border border-base-300 bg-base-100 px-3 py-2 text-xs text-base-content/80 flex items-center justify-between">
           <div>
             Want to save favorites?{" "}
-            <a
-              className="underline text-primary"
-              href={`/login?next=${encodeURIComponent(nextUrl)}`}
-            >
+            <a className="underline text-primary" href={`/login?next=${encodeURIComponent(nextUrl)}`}>
               Log in
             </a>{" "}
             or{" "}
-            <a
-              className="underline text-primary"
-              href={`/signup?next=${encodeURIComponent(nextUrl)}`}
-            >
+            <a className="underline text-primary" href={`/signup?next=${encodeURIComponent(nextUrl)}`}>
               create an account
             </a>
             .
@@ -305,13 +341,17 @@ export default function Browse() {
           </button>
         </div>
       )}
-      {/* Location help */}
+
+      {/* Location help / auto-switch note */}
       {tab === "vendors" && mode === "nearby" && !coords && (
         <div className="mb-3 text-xs text-base-content/80">
           {geoErr
             ? `Location error: ${geoErr}. You can switch back to Favorites or All.`
             : "Requesting your location… If prompted, please allow access."}
         </div>
+      )}
+      {autoSwitchNote && (
+        <div className="mb-3 text-xs text-base-content/80">{autoSwitchNote}</div>
       )}
 
       {/* Lists */}
