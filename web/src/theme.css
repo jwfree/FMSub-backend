@@ -1,0 +1,12 @@
+/* web/src/theme.css */
+:root { --primary: #ea9a49; }                /* default (fallback) */
+
+/* match the values you want per theme */
+:root[data-theme="farmers"]   { --primary: #ea9a49; } /* your orange */
+:root[data-theme="light"]     { --primary: #3b82f6; }
+:root[data-theme="dark"]      { --primary: #60a5fa; }
+:root[data-theme="corporate"] { --primary: #4b6bfb; }
+:root[data-theme="emerald"]   { --primary: #10b981; }
+:root[data-theme="autumn"]    { --primary: #f59e0b; }
+:root[data-theme="cupcake"]   { --primary: #65c3c8; }
+:root[data-theme="fantasy"]   { --primary: #e879f9; }

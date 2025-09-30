@@ -10,16 +10,41 @@ export type Vendor = {
   active?: boolean;
 };
 
-type Props = { vendor: Vendor; onClick?: (v: Vendor) => void };
+type Props = {
+  vendor: Vendor;
+  onClick?: (v: Vendor) => void;
+  favorited?: boolean;
+  onToggleFavorite?: (vendorId: number, next: boolean) => void;
+};
 
-export default function VendorCard({ vendor, onClick }: Props) {
+export default function VendorCard({ vendor, onClick, favorited, onToggleFavorite }: Props) {
+  const next = !favorited;
+
   return (
     <Link
       to={`/vendors/${vendor.id}`}
       onClick={() => onClick?.(vendor)}
-      className="block w-full rounded-2xl shadow p-4 bg-base-100 hover:shadow-md transition text-left focus:outline-none focus:ring-2 focus:ring-[--color-primary]"
+      className="block w-full rounded-2xl shadow p-4 bg-base-100 hover:shadow-md transition text-left focus:outline-none focus:ring-2 focus:ring-[--color-primary] relative"
       aria-label={vendor.name}
     >
+      {/* Heart button */}
+      <button
+        aria-label={favorited ? "Unfavorite" : "Favorite"}
+        className="absolute right-3 top-3"
+        title={favorited ? "Remove from favorites" : "Add to favorites"}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleFavorite?.(vendor.id, next);
+        }}
+      >
+       <span
+          className={`text-lg ${favorited ? "text-[var(--primary)]" : "text-neutral-500"}`}
+        >
+          {favorited ? "♥" : "♡"}
+        </span>
+      </button>
+
       <div className="flex items-start gap-3">
         {vendor.photo_url && (
           <img

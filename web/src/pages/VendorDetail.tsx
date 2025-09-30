@@ -1,7 +1,7 @@
 // web/src/pages/VendorDetail.tsx
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import api from "../lib/api";
+import { Link, useParams } from "react-router-dom";
+import api, { getMyFavoriteVendors, favoriteVendor, unfavoriteVendor } from "../lib/api";
 import ProductCard from "../components/ProductCard";
 import type { Product } from "../components/ProductCard";
 import Lightbox from "../components/Lightbox";
@@ -37,7 +37,6 @@ type Vendor = {
 
 export default function VendorDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,26 +66,36 @@ export default function VendorDetail() {
   const [showPhoto, setShowPhoto] = useState(false);
   const [showBanner, setShowBanner] = useState(false);
 
-  async function fetchVendor() {
-    const r = await api.get(`/vendors/${id}`, { params: { include_inactive: 1 } });
-    return r.data as Vendor;
+  const [authPrompt, setAuthPrompt] = useState(false);
+  const nextUrl = `${window.location.pathname}${window.location.search}`; 
+
+  function fetchVendor() {
+    return api.get(`/vendors/${id}`, { params: { include_inactive: 1 } }).then(r => r.data as Vendor);
   }
 
+  // Load vendor + my favorites so the heart is correct on first paint
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchVendor()
-      .then((data) => {
-        if (cancelled) return;
-        setVendor(data);
-        setName(data?.name ?? "");
-        setContactEmail(data?.contact_email ?? "");
-        setContactPhone(data?.contact_phone ?? "");
-        setDescription(data?.description ?? "");
-        setFlyerText(data?.flyer_text ?? "");
+    setErr(null);
 
-        // hydrate address fields from first/primary location (if any)
-        const L = data?.locations?.[0];
+    Promise.all([
+      fetchVendor(),
+      getMyFavoriteVendors().catch(() => [] as number[]), // not logged in -> empty
+    ])
+      .then(([data, favIds]) => {
+        if (cancelled) return;
+        const isFav = favIds.includes(data.id);
+        const v = { ...data, is_favorite: isFav };
+
+        setVendor(v);
+        setName(v.name ?? "");
+        setContactEmail(v.contact_email ?? "");
+        setContactPhone(v.contact_phone ?? "");
+        setDescription(v.description ?? "");
+        setFlyerText(v.flyer_text ?? "");
+
+        const L = v.locations?.[0];
         setAddress1(L?.address_line1 ?? "");
         setAddress2(L?.address_line2 ?? "");
         setCity(L?.city ?? "");
@@ -96,16 +105,14 @@ export default function VendorDetail() {
       })
       .catch((e) => !cancelled && setErr(e?.response?.data?.message || e.message))
       .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
+
+    return () => { cancelled = true; };
   }, [id]);
 
   async function saveEdits() {
     if (!vendor) return;
     setSaving(true);
     try {
-      // 1) PATCH vendor (including address fields) — backend will geocode if address changed
       const patchBody: any = {
         name,
         contact_email: contactEmail || "",
@@ -121,7 +128,6 @@ export default function VendorDetail() {
       };
       const patched = await api.patch(`/vendors/${vendor.id}`, patchBody);
 
-      // 2) Upload images (optional)
       let finalVendor = patched.data as Vendor;
       if (bannerFile || photoFile) {
         const form = new FormData();
@@ -133,7 +139,8 @@ export default function VendorDetail() {
         finalVendor = res.data;
       }
 
-      setVendor(finalVendor);
+      // keep is_favorite flag after save
+      setVendor({ ...finalVendor, is_favorite: vendor.is_favorite });
       setOpenEdit(false);
       setBannerFile(null);
       setPhotoFile(null);
@@ -147,38 +154,36 @@ export default function VendorDetail() {
     }
   }
 
-  // --- Favorites (follow/heart) ---
+  // --- Favorites (heart) ---
   async function toggleFavorite() {
     if (!vendor) return;
 
-    // optimistic flip
+    // not logged in? show gentle prompt
+    if (!localStorage.getItem("token")) {
+      setAuthPrompt(true);
+      return;
+    }
+
     const desired = !(vendor.is_favorite ?? false);
-    setVendor({ ...vendor, is_favorite: desired });
+    setVendor({ ...vendor, is_favorite: desired }); // optimistic
 
     try {
-      if (desired) {
-        await api.post(`/vendors/${vendor.id}/favorite`);
-      } else {
-        await api.delete(`/vendors/${vendor.id}/favorite`);
-      }
+      if (desired) await favoriteVendor(vendor.id);
+      else await unfavoriteVendor(vendor.id);
     } catch (e: any) {
-      // revert on error
-      setVendor({ ...vendor, is_favorite: !desired });
-
+      setVendor({ ...vendor, is_favorite: !desired }); // revert
       if (e?.response?.status === 401) {
-        navigate(`/login?next=/vendors/${vendor.id}`, { replace: true });
+        setAuthPrompt(true);
         return;
       }
       setToast(e?.response?.data?.message || "Could not update favorite");
       setTimeout(() => setToast(null), 1500);
     }
   }
-
   // Actions on products
   async function toggleActive(productId: number, desired: boolean) {
     if (!vendor) return;
 
-    // optimistic UI
     setVendor({
       ...vendor,
       products: (vendor.products ?? []).map((p) =>
@@ -190,9 +195,7 @@ export default function VendorDetail() {
       await api
         .patch(`/vendors/${vendor.id}/products/${productId}`, { active: desired })
         .catch(async () => {
-          await api.put(`/vendors/${vendor.id}/products/${productId}`, {
-            active: desired,
-          });
+          await api.put(`/vendors/${vendor.id}/products/${productId}`, { active: desired });
         });
     } catch {
       const v = await fetchVendor();
@@ -205,7 +208,6 @@ export default function VendorDetail() {
     if (!vendor) return;
     if (!confirm("Delete this product permanently? This cannot be undone.")) return;
 
-    // optimistic UI
     setVendor({
       ...vendor,
       products: (vendor.products ?? []).filter((p) => p.id !== productId),
@@ -230,7 +232,6 @@ export default function VendorDetail() {
   const flyerHref = `${API}/vendors/${vendor.id}/flyer.pdf`;
   const qrHref = `${API}/vendors/${vendor.id}/qr.png`;
 
-  // Split lists
   const all = [...(vendor.products ?? [])];
   const activeProducts = all
     .filter((p) => (p.active ?? p.is_active ?? true))
@@ -249,9 +250,7 @@ export default function VendorDetail() {
             alt="Vendor banner"
             className="w-full h-40 sm:h-56 object-cover rounded-2xl mb-3 cursor-zoom-in"
             onClick={() => setShowBanner(true)}
-            onError={(e) =>
-              ((e.currentTarget as HTMLImageElement).style.display = "none")
-            }
+            onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
           />
           <Lightbox open={showBanner} onClose={() => setShowBanner(false)}>
             <img
@@ -273,9 +272,7 @@ export default function VendorDetail() {
               alt="Vendor"
               className="w-16 h-16 rounded-xl object-cover border cursor-zoom-in"
               onClick={() => setShowPhoto(true)}
-              onError={(e) =>
-                ((e.currentTarget as HTMLImageElement).style.display = "none")
-              }
+              onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = "none")}
             />
             <Lightbox open={showPhoto} onClose={() => setShowPhoto(false)}>
               <img
@@ -287,7 +284,33 @@ export default function VendorDetail() {
             </Lightbox>
           </>
         )}
-
+        {authPrompt && (
+          <div className="mt-3 rounded-xl border border-base-300 bg-base-100 px-3 py-2 text-xs text-base-content/80 flex items-center justify-between">
+            <div>
+              Want to follow this vendor?{" "}
+              <a
+                className="underline text-primary"
+                href={`/login?next=${encodeURIComponent(nextUrl)}`}
+              >
+                Log in
+              </a>{" "}
+              or{" "}
+              <a
+                className="underline text-primary"
+                href={`/signup?next=${encodeURIComponent(nextUrl)}`}
+              >
+                create an account
+              </a>
+              .
+            </div>
+            <button
+              className="ml-3 rounded border px-2 py-1 hover:bg-base-200"
+              onClick={() => setAuthPrompt(false)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         <div className="flex-1">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -302,10 +325,10 @@ export default function VendorDetail() {
             <button
               aria-label={(vendor.is_favorite ? "Unfollow " : "Follow ") + vendor.name}
               onClick={toggleFavorite}
-              className="select-none rounded-full border px-3 py-1 text-sm leading-none hover:bg-base-200"
+              className="select-none rounded-full px-3 py-1 text-sm leading-none hover:bg-base-200"
               title={vendor.is_favorite ? "Unfollow" : "Follow"}
             >
-              <span className="text-lg align-middle">
+              <span className={`text-lg align-middle ${vendor.is_favorite ? "text-[var(--primary)]" : "text-neutral-500"}`}>
                 {vendor.is_favorite ? "♥" : "♡"}
               </span>
             </button>
@@ -331,6 +354,7 @@ export default function VendorDetail() {
       {/* Edit panel */}
       {vendor.can_edit && openEdit && (
         <div className="mt-4 rounded-2xl border p-4 space-y-3">
+          {/* Vendor name */}
           <div>
             <label className="block text-xs text-base-content/80 mb-1">Vendor name</label>
             <input
@@ -340,6 +364,7 @@ export default function VendorDetail() {
             />
           </div>
 
+          {/* Description */}
           <div>
             <label className="block text-xs text-base-content/80 mb-1">Description</label>
             <textarea
@@ -351,6 +376,7 @@ export default function VendorDetail() {
             />
           </div>
 
+          {/* Flyer text */}
           <div>
             <label className="block text-xs text-base-content/80 mb-1">Flyer text</label>
             <textarea
@@ -362,6 +388,7 @@ export default function VendorDetail() {
             />
           </div>
 
+          {/* Contact */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-base-content/80 mb-1">Vendor email</label>
@@ -382,7 +409,7 @@ export default function VendorDetail() {
             </div>
           </div>
 
-          {/* Vendor Address (Primary location) */}
+          {/* Primary Location (address) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-base-content/80 mb-1">Address line 1</label>
@@ -438,6 +465,7 @@ export default function VendorDetail() {
             </div>
           </div>
 
+          {/* Images */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-base-content/80 mb-1">Banner image</label>
@@ -457,11 +485,12 @@ export default function VendorDetail() {
             </div>
           </div>
 
+          {/* Actions */}
           <div className="flex flex-wrap gap-2">
             <button
               onClick={saveEdits}
               disabled={saving}
-              className="rounded bg-black text-primary-content px-4 py-2 text-sm disabled:opacity-60"
+              className="btn btn-primary btn-sm"
             >
               {saving ? "Saving…" : "Save changes"}
             </button>
@@ -470,7 +499,7 @@ export default function VendorDetail() {
               href={flyerHref}
               target="_blank"
               rel="noreferrer"
-              className="rounded border px-4 py-2 text-sm"
+              className="btn btn-sm"
             >
               Download flyer
             </a>
@@ -478,28 +507,23 @@ export default function VendorDetail() {
               href={qrHref}
               target="_blank"
               rel="noreferrer"
-              className="rounded border px-4 py-2 text-sm"
+              className="btn btn-sm"
             >
               Open QR
             </a>
           </div>
         </div>
       )}
-
-      {/* Products header + “+ Product” */}
+      {/* Products */}
       <div className="mt-6 mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-base-content">Products</h2>
         {vendor.can_edit && (
-          <Link
-            to={`/vendors/${vendor.id}/products/new`}
-            className="rounded border px-4 py-2 text-sm"
-          >
+          <Link to={`/vendors/${vendor.id}/products/new`} className="rounded border px-4 py-2 text-sm">
             + Product
           </Link>
         )}
       </div>
 
-      {/* Active products */}
       <div className="grid grid-cols-1 gap-3">
         {activeProducts.map((p) => (
           <ProductCard
@@ -509,22 +533,13 @@ export default function VendorDetail() {
             actions={
               vendor.can_edit ? (
                 <div className="flex flex-wrap gap-2">
-                  <Link
-                    to={`/vendors/${vendor.id}/products/${p.id}/edit`}
-                    className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-                  >
+                  <Link to={`/vendors/${vendor.id}/products/${p.id}/edit`} className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs">
                     ✎ <span className="hidden sm:inline">Edit</span>
                   </Link>
-                  <button
-                    onClick={() => toggleActive(p.id, false)}
-                    className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-                  >
+                  <button onClick={() => toggleActive(p.id, false)} className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs">
                     Pause
                   </button>
-                  <button
-                    onClick={() => deleteProduct(p.id)}
-                    className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-                  >
+                  <button onClick={() => deleteProduct(p.id)} className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs">
                     ✕ <span className="hidden sm:inline">Delete</span>
                   </button>
                 </div>
@@ -534,7 +549,6 @@ export default function VendorDetail() {
         ))}
       </div>
 
-      {/* Inactive products (only for vendor) */}
       {vendor.can_edit && inactiveProducts.length > 0 && (
         <>
           <h3 className="mt-6 mb-2 text-xs font-semibold text-base-content/80 uppercase tracking-wide">
@@ -548,22 +562,13 @@ export default function VendorDetail() {
                 to={`/products/${p.id}`}
                 actions={
                   <div className="flex flex-wrap gap-2">
-                    <Link
-                      to={`/vendors/${vendor.id}/products/${p.id}/edit`}
-                      className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-                    >
+                    <Link to={`/vendors/${vendor.id}/products/${p.id}/edit`} className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs">
                       ✎ <span className="hidden sm:inline">Edit</span>
                     </Link>
-                    <button
-                      onClick={() => toggleActive(p.id, true)}
-                      className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-                    >
+                    <button onClick={() => toggleActive(p.id, true)} className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs">
                       Activate
                     </button>
-                    <button
-                      onClick={() => deleteProduct(p.id)}
-                      className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
-                    >
+                    <button onClick={() => deleteProduct(p.id)} className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs">
                       ✕ <span className="hidden sm:inline">Delete</span>
                     </button>
                   </div>
