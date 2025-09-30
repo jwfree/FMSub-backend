@@ -74,5 +74,45 @@ export function updateVariant(
 export function deleteVariant(variantId: number) {
   return api.delete(`/variants/${variantId}`);
 }
+export function getVendorInventory(vendorId: number, params: { date: string; location_id?: number }) {
+  return api.get(`/vendors/${vendorId}/inventory`, { params });
+}
+export function addInventoryEntry(vendorId: number, payload: {
+  vendor_location_id?: number | null;
+  product_id: number;
+  product_variant_id: number;
+  for_date: string; // 'YYYY-MM-DD'
+  qty: number;      // +add, -adjust
+  entry_type: 'add' | 'adjust';
+  note?: string | null;
+}) {
+  return api.post(`/vendors/${vendorId}/inventory/entries`, payload);
+}
+export function updateInventoryEntry(vendorId: number, id: number, payload: Partial<{
+  qty: number;
+  entry_type: 'add' | 'adjust';
+  note: string | null;
+}>) {
+  return api.patch(`/vendors/${vendorId}/inventory/entries/${id}`, payload);
+}
+export function deleteInventoryEntry(vendorId: number, id: number) {
+  return api.delete(`/vendors/${vendorId}/inventory/entries/${id}`);
+}
+export function getVendorLocations(vendorId: number) {
+  // public endpoint you already have: GET /vendors/{vendor}/locations
+  return api.get(`/vendors/${vendorId}/locations`);
+}
+
+export function fulfillDelivery(vendorId: number, deliveryId: number) {
+  return api.patch(`/vendors/${vendorId}/inventory/deliveries/${deliveryId}/fulfill`);
+}
+
+export function markDeliveryReady(vendorId: number, deliveryId: number) {
+  return api.patch(`/vendors/${vendorId}/inventory/deliveries/${deliveryId}/ready`);
+}
+
+export function cancelDelivery(vendorId: number, deliveryId: number) {
+  return api.patch(`/vendors/${vendorId}/inventory/deliveries/${deliveryId}/cancel`);
+}
 
 export default api;

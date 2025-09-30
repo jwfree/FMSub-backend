@@ -7,13 +7,25 @@ use App\Models\Vendor;
 
 class VendorPolicy
 {
+    /**
+     * Anyone attached to the vendor can view it.
+     */
+    public function view(User $user, Vendor $vendor): bool
+    {
+        return $vendor->users()
+            ->where('users.id', $user->id)
+            ->exists();
+    }
+
+    /**
+     * Only elevated roles can update the vendor.
+     * Adjust the allowed roles to match your needs.
+     */
     public function update(User $user, Vendor $vendor): bool
     {
-        // Owner/admin on the pivot can edit
-        $role = $vendor->users()
+        return $vendor->users()
             ->where('users.id', $user->id)
-            ->first()?->pivot?->role;
-
-        return in_array($role, ['owner','admin'], true);
+            ->wherePivotIn('role', ['owner', 'manager'])
+            ->exists();
     }
 }

@@ -18,6 +18,7 @@ import VendorNew from "./pages/VendorNew";
 import VendorProductNew from "./pages/VendorProductNew";
 import VendorProductEdit from "./pages/VendorProductEdit";
 import ThemeSwitcher from "./components/ThemeSwitcher";
+import VendorInventory from "./pages/VendorInventory";
 
 type Me = { id: number; name: string; email: string };
 
@@ -417,6 +418,7 @@ export default function App() {
             <div className="p-6 text-sm text-base-content/70">Page not found.</div>
           }
         />
+        <Route path="/vendors/:vendorId/inventory" element={<VendorInventory />} />
       </Routes>
     </Shell>
   );

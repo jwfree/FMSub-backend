@@ -517,13 +517,24 @@ export default function VendorDetail() {
       {/* Products */}
       <div className="mt-6 mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-base-content">Products</h2>
+
         {vendor.can_edit && (
-          <Link to={`/vendors/${vendor.id}/products/new`} className="rounded border px-4 py-2 text-sm">
-            + Product
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to={`/vendors/${vendor.id}/inventory`}
+              className="rounded border px-4 py-2 text-sm"
+            >
+              Inventory
+            </Link>
+            <Link
+              to={`/vendors/${vendor.id}/products/new`}
+              className="rounded border px-4 py-2 text-sm"
+            >
+              + Product
+            </Link>
+          </div>
         )}
       </div>
-
       <div className="grid grid-cols-1 gap-3">
         {activeProducts.map((p) => (
           <ProductCard

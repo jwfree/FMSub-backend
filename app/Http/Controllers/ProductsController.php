@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use Illuminate\Http\Request;
+use App\Models\Vendor;
 
 class ProductsController extends Controller
 {
@@ -76,4 +77,47 @@ class ProductsController extends Controller
 
         return response()->json($product);
     }
+
+    /**
+     * GET /api/vendors/{vendor}/products
+     * Optional query params:
+     *   - q=...                 (search name/description)
+     *   - include_inactive=1    (include inactive products/variants)
+     *   - per_page=50 | all
+     */
+    public function byVendor(Request $request, Vendor $vendor)
+    {
+        $perPage         = $request->get('per_page', 50);
+        $search          = trim((string) $request->get('q', ''));
+        $includeInactive = (bool) $request->boolean('include_inactive', false);
+
+        $query = $vendor->products()
+            ->with(['variants' => function ($q) use ($includeInactive) {
+                if (!$includeInactive) {
+                    $q->where('active', true);
+                }
+                $q->orderBy('sort_order')->orderBy('name');
+            }]);
+
+        if (!$includeInactive) {
+            $query->where('active', true);
+        }
+
+        if ($search !== '') {
+            $query->where(function ($w) use ($search) {
+                $w->where('name', 'like', "%{$search}%")
+                ->orWhere('description', 'like', "%{$search}%");
+            });
+        }
+
+        $query->orderBy('name');
+
+        // allow per_page=all to return a plain array
+        if ($perPage === 'all' || (int) $perPage === 0) {
+            return response()->json($query->get());
+        }
+
+        return response()->json($query->paginate((int) $perPage));
+    }
+
 }

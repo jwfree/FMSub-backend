@@ -18,21 +18,25 @@ class LocationsController extends Controller
 
         if ($q !== '') {
             $query->where(function ($w) use ($q) {
-                $w->where('name', 'like', "%{$q}%")
+                $w->where('label', 'like', "%{$q}%")
                   ->orWhere('city', 'like', "%{$q}%")
-                  ->orWhere('state', 'like', "%{$q}%")
+                  ->orWhere('region', 'like', "%{$q}%")      // was 'state'
                   ->orWhere('postal_code', 'like', "%{$q}%");
             });
         }
 
-        return response()->json($query->orderBy('name')->paginate($perPage));
+        return response()->json(
+            $query->orderBy('label', 'asc')->paginate($perPage)
+        );
     }
 
     // GET /api/vendors/{vendor}/locations
     public function forVendor(Vendor $vendor)
     {
-        // pull via pivot; no locations.vendor_id exists
-        $locs = $vendor->locations()->orderBy('name')->get();
-        return response()->json($locs);
+        // Lean payload; sorted by label
+        return $vendor->locations()
+            ->select('locations.id', 'locations.label', 'locations.city', 'locations.region')
+            ->orderBy('label', 'asc')
+            ->get();
     }
 }

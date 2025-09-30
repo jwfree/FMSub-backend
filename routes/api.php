@@ -16,6 +16,8 @@ use App\Http\Controllers\LocationsController;
 use App\Http\Controllers\SubscriptionsController;
 use App\Http\Controllers\VariantController;
 
+use App\Http\Controllers\InventoryController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -101,7 +103,21 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::delete('/variants/{variant}', [\App\Http\Controllers\VariantController::class, 'destroy'])
         ->whereNumber('variant');
-    });
+
+        // --- Inventory (vendor) ---
+        Route::get   ('/vendors/{vendor}/inventory',               [InventoryController::class, 'index'])
+            ->whereNumber('vendor')->middleware('can:view,vendor');
+        Route::post  ('/vendors/{vendor}/inventory/entries',       [InventoryController::class, 'store'])
+            ->whereNumber('vendor')->middleware('can:update,vendor');
+        Route::patch ('/vendors/{vendor}/inventory/entries/{id}',  [InventoryController::class, 'update'])
+            ->whereNumber(['vendor','id'])->middleware('can:update,vendor');
+        Route::delete('/vendors/{vendor}/inventory/entries/{id}',  [InventoryController::class, 'destroy'])
+            ->whereNumber(['vendor','id'])->middleware('can:update,vendor');
+        });
+        // Mark a delivery fulfilled (removes it from "reserved" on this date)
+        Route::patch('/vendors/{vendor}/inventory/deliveries/{id}/fulfill', [InventoryController::class, 'fulfillDelivery'])
+            ->whereNumber(['vendor','id'])
+            ->middleware('can:update,vendor');
 
     // Subscriptions (MVP)
     Route::get ('/subscriptions/mine',                  [SubscriptionsController::class, 'mine']);
@@ -110,7 +126,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/subscriptions/{subscription}/resume', [SubscriptionsController::class, 'resume'])->whereNumber('subscription');
     Route::post('/subscriptions/{subscription}/cancel', [SubscriptionsController::class, 'cancel'])->whereNumber('subscription');
 
-    
+ 
 });
 
 // ---------------------------------------------------------------------
