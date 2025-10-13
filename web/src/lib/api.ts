@@ -1,118 +1,110 @@
+// web/src/lib/api.ts
 import axios from "axios";
 
+/** Axios instance */
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "/api",
+  baseURL: import.meta.env.VITE_API_BASE ?? "https://fmsub.fbwks.com/api",
+  withCredentials: false,
 });
 
-// Always attach token if present (handles hard reloads)
-api.interceptors.request.use((config) => {
-  const t = localStorage.getItem("token");
-  if (t) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (config.headers as any).Authorization = `Bearer ${t}`;
+/** Attach bearer token when present */
+api.interceptors.request.use((cfg) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    cfg.headers = cfg.headers ?? {};
+    cfg.headers.Authorization = `Bearer ${token}`;
   }
-  return config;
+  return cfg;
 });
 
-// ---------- Favorites helpers ----------
+export default api;
+
+/* ----------------------------- Favorites API ----------------------------- */
+
 export async function getMyFavoriteVendors(): Promise<number[]> {
-  // Accepts either [1,2,3] or [{id:1}, {id:2}] from the API
-  const r = await api.get("/my/vendors/favorites");
-  const d = r.data;
-  if (Array.isArray(d)) {
-    if (d.length === 0) return [];
-    if (typeof d[0] === "number") return d as number[];
-    if (typeof d[0] === "object" && d[0] && "id" in d[0]) {
-      return (d as Array<{ id: number }>).map((x) => x.id);
-    }
+  try {
+    const r = await api.get<{ data: Array<{ id: number }> }>("/my/vendors/favorites");
+    // API returns full vendor objects; we only need ids here
+    return (r.data?.data ?? []).map((v: any) => v.id);
+  } catch {
+    // unauthenticated callers get empty favorites
+    return [];
   }
-  return [];
 }
 
 export function favoriteVendor(vendorId: number) {
   return api.post(`/vendors/${vendorId}/favorite`);
 }
-
 export function unfavoriteVendor(vendorId: number) {
   return api.delete(`/vendors/${vendorId}/favorite`);
 }
 
-// ---------- Variant helpers (yours) ----------
-export function createVariant(
+/* ----------------------------- Vendors/Products -------------------------- */
+
+/** Minimal list of a vendor’s products + variants for selectors */
+export function listVendorProductsMinimal(vendorId: number, params?: Record<string, any>) {
+  const p = { per_page: 500, include_inactive: 1, ...params };
+  return api.get(`/vendors/${vendorId}/products`, { params: p });
+}
+
+/* -------------------------------- Inventory ------------------------------ */
+
+export function getVendorInventory(
   vendorId: number,
-  productId: number,
-  payload: {
-    sku?: string;
-    name: string;
-    price_cents: number;
-    currency: string;
-    active?: boolean;
-    quantity_per_unit?: number | null;
-    unit_label?: string | null;
-    sort_order?: number;
-  }
+  params: { date: string; location_id?: number }
 ) {
-  return api.post(`/vendors/${vendorId}/products/${productId}/variants`, payload);
-}
-
-export function updateVariant(
-  variantId: number,
-  payload: Partial<{
-    sku: string;
-    name: string;
-    price_cents: number;
-    currency: string;
-    active: boolean;
-    quantity_per_unit: number | null;
-    unit_label: string | null;
-    sort_order: number;
-  }>
-) {
-  return api.patch(`/variants/${variantId}`, payload);
-}
-
-export function deleteVariant(variantId: number) {
-  return api.delete(`/variants/${variantId}`);
-}
-export function getVendorInventory(vendorId: number, params: { date: string; location_id?: number }) {
   return api.get(`/vendors/${vendorId}/inventory`, { params });
 }
-export function addInventoryEntry(vendorId: number, payload: {
-  vendor_location_id?: number | null;
-  product_id: number;
-  product_variant_id: number;
-  for_date: string; // 'YYYY-MM-DD'
-  qty: number;      // +add, -adjust
-  entry_type: 'add' | 'adjust';
-  note?: string | null;
-}) {
+
+export function addInventoryEntry(
+  vendorId: number,
+  payload: {
+    product_id: number;
+    product_variant_id: number;
+    for_date: string;
+    qty: number;
+    note?: string;
+    entry_type: "add" | "adjust";
+    vendor_location_id?: number | null;
+  }
+) {
   return api.post(`/vendors/${vendorId}/inventory/entries`, payload);
 }
-export function updateInventoryEntry(vendorId: number, id: number, payload: Partial<{
-  qty: number;
-  entry_type: 'add' | 'adjust';
-  note: string | null;
-}>) {
-  return api.patch(`/vendors/${vendorId}/inventory/entries/${id}`, payload);
+
+/** Bulk add (+ preview via dry_run) */
+export function addInventoryEntriesBulk(
+  vendorId: number,
+  payload: {
+    product_id: number;
+    product_variant_id: number;
+    vendor_location_id?: number | null;
+    start_date: string; // YYYY-MM-DD
+    end_date: string;   // YYYY-MM-DD
+    pattern: "daily" | "every_n_days" | "weekly" | "monthly";
+    every_n_days?: number;
+    qty: number;
+    note?: string;
+    dry_run?: boolean; // 👈 allows preview without creating
+  }
+) {
+  return api.post(`/vendors/${vendorId}/inventory/entries/bulk`, payload);
 }
-export function deleteInventoryEntry(vendorId: number, id: number) {
-  return api.delete(`/vendors/${vendorId}/inventory/entries/${id}`);
-}
+
+/** Vendor locations for filtering / choosing */
 export function getVendorLocations(vendorId: number) {
-  // public endpoint you already have: GET /vendors/{vendor}/locations
   return api.get(`/vendors/${vendorId}/locations`);
 }
 
-export function fulfillDelivery(vendorId: number, deliveryId: number) {
-  return api.patch(`/vendors/${vendorId}/inventory/deliveries/${deliveryId}/fulfill`);
-}
+/* -------------------------------- Deliveries ----------------------------- */
 
 export function markDeliveryReady(vendorId: number, deliveryId: number) {
-  return api.patch(`/vendors/${vendorId}/inventory/deliveries/${deliveryId}/ready`);
+  return api.post(`/vendors/${vendorId}/deliveries/${deliveryId}/ready`);
 }
 
-export function cancelDelivery(vendorId: number, deliveryId: number) {
-  return api.patch(`/vendors/${vendorId}/inventory/deliveries/${deliveryId}/cancel`);
+export function markDeliveryFulfilled(vendorId: number, deliveryId: number) {
+  return api.post(`/vendors/${vendorId}/deliveries/${deliveryId}/fulfilled`);
 }
 
-export default api;
+export function markDeliveryCancelled(vendorId: number, deliveryId: number) {
+  return api.post(`/vendors/${vendorId}/deliveries/${deliveryId}/cancel`);
+}

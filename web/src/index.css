@@ -188,15 +188,43 @@
     border-color: var(--color-base-300);
   }
   .btn:hover { filter: brightness(0.98); }
-    .btn:focus-visible {
-      @apply outline-2 outline-offset-2;
-      outline-color: var(--color-base-content);
-    }
-    .btn-primary {
+  .btn:focus-visible {
+    @apply outline-2 outline-offset-2;
+    outline-color: var(--color-base-content);
+  }
+
+  /* === Button Variants === */
+  .btn-primary {
     background-color: var(--color-primary);
     color: var(--color-primary-content);
     border-color: var(--color-primary);
   }
+
+  .btn-secondary {
+    background-color: var(--color-secondary);
+    color: var(--color-secondary-content);
+    border-color: var(--color-secondary);
+  }
+
+  .btn-success {
+    background-color: var(--color-success);
+    color: #fff;
+    border-color: var(--color-success);
+  }
+
+  .btn-warning {
+    background-color: var(--color-warning);
+    color: #000;
+    border-color: var(--color-warning);
+  }
+
+  .btn-error {
+    background-color: var(--color-error);
+    color: #fff;
+    border-color: var(--color-error);
+  }
+
+  /* Small button variants */
   .btn-sm { @apply text-xs px-2 py-1.5; }
   .btn-xs { @apply text-[11px] px-2 py-1; }
 

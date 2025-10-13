@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import api, { getMyFavoriteVendors, favoriteVendor, unfavoriteVendor } from "../lib/api";
 import VendorCard, { type Vendor } from "../components/VendorCard";
 import ProductCard, { type Product } from "../components/ProductCard";
+import { useSearchParams } from "react-router-dom";
 
 type Page<T> = {
   data: T[];
@@ -11,25 +12,56 @@ type Page<T> = {
 };
 
 export default function Browse() {
-  const [tab, setTab] = useState<"vendors" | "products">("vendors");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isAuthed = !!localStorage.getItem("token");
+
+  // ----- initial state from URL -----
+  const initialTab = ((): "vendors" | "products" => {
+    const t = (searchParams.get("tab") || "").toLowerCase();
+    return t === "products" ? "products" : "vendors";
+  })();
+
+  const initialMode = ((): "favorites" | "nearby" | "all" => {
+    const m = (searchParams.get("mode") || "").toLowerCase();
+    if (m === "favorites" || m === "nearby" || m === "all") return m;
+    return isAuthed ? "favorites" : "nearby";
+  })();
+
+  const initialRadius = ((): number => {
+    const r = Number(searchParams.get("radius"));
+    return Number.isFinite(r) && r > 0 ? r : 10;
+  })();
+
+  const initialQ = searchParams.get("q") ?? "";
+  const initialVendorFilter = ((): number | "all" => {
+    const v = searchParams.get("vendor");
+    if (!v || v === "all") return "all";
+    const n = Number(v);
+    return Number.isFinite(n) ? n : "all";
+  })();
+
+  const initialPage = ((): number => {
+    const p = Number(searchParams.get("page"));
+    return Number.isFinite(p) && p > 0 ? p : 1;
+  })();
+
+  // ----- state -----
+  const [tab, setTab] = useState<"vendors" | "products">(initialTab);
+  const [mode, setMode] = useState<"favorites" | "nearby" | "all">(initialMode);
+  const [radius, setRadius] = useState<number>(initialRadius);
+
   const [authPrompt, setAuthPrompt] = useState(false);
   const nextUrl = `${window.location.pathname}${window.location.search}`;
 
-  const isAuthed = !!localStorage.getItem("token");
-
-  // ---- vendor mode + geolocation ----
-  const [mode, setMode] = useState<"favorites" | "nearby" | "all">(
-    isAuthed ? "favorites" : "nearby"
-  );
+  // vendor geolocation
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [radius, setRadius] = useState<number>(10);
   const [geoErr, setGeoErr] = useState<string | null>(null);
   const autoSwitchedRef = useRef(false);
   const [autoSwitchNote, setAutoSwitchNote] = useState<string | null>(null);
 
   // shared UI state
-  const [q, setQ] = useState("");
-  const [page, setPage] = useState(1);
+  const [q, setQ] = useState(initialQ);
+  const [page, setPage] = useState(initialPage);
   const perPage = 20;
 
   // vendors
@@ -41,10 +73,43 @@ export default function Browse() {
   const [favoriteIds, setFavoriteIds] = useState<Set<number>>(new Set());
 
   // products
-  const [vendorIdFilter, setVendorIdFilter] = useState<number | "all">("all");
+  const [vendorIdFilter, setVendorIdFilter] = useState<number | "all">(initialVendorFilter);
   const [products, setProducts] = useState<Page<Product> | null>(null);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState<string | null>(null);
+
+  // ----- keep key UI state in the URL (so Back restores the same filtered list) -----
+  useEffect(() => {
+    const sp = new URLSearchParams(searchParams);
+
+    // always persist tab
+    sp.set("tab", tab);
+
+    // shared search + page
+    if (q.trim()) sp.set("q", q.trim());
+    else sp.delete("q");
+
+    if (page > 1) sp.set("page", String(page));
+    else sp.delete("page");
+
+    if (tab === "vendors") {
+      sp.set("mode", mode);
+      if (mode === "nearby") sp.set("radius", String(radius));
+      else sp.delete("radius");
+      // vendor-only stuff not relevant here
+      sp.delete("vendor");
+    } else {
+      // products tab: persist vendor filter
+      if (vendorIdFilter === "all") sp.delete("vendor");
+      else sp.set("vendor", String(vendorIdFilter));
+      // vendor tab fields not relevant here
+      sp.delete("mode");
+      sp.delete("radius");
+    }
+
+    setSearchParams(sp, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, mode, radius, q, page, vendorIdFilter]);
 
   // ask for location if in nearby mode
   useEffect(() => {
@@ -73,7 +138,6 @@ export default function Browse() {
     setVendorsLoading(true);
     setVendorsError(null);
 
-    // If logged-out user somehow lands on "favorites", nudge them to Nearby
     if (!isAuthed && mode === "favorites") {
       setMode("nearby");
       setVendorsLoading(false);
@@ -96,11 +160,10 @@ export default function Browse() {
       params.lng = coords.lng;
       params.radius_miles = radius;
     }
-    // NOTE: we DO NOT rely on ?favorites=1 any more; we’ll filter locally.
 
     Promise.all([
       api.get<Page<Vendor>>("/vendors", { params }),
-      getMyFavoriteVendors().catch(() => [] as number[]), // not logged in -> empty
+      getMyFavoriteVendors().catch(() => [] as number[]),
     ])
       .then(([vRes, favIds]) => {
         if (cancelled) return;
@@ -109,11 +172,8 @@ export default function Browse() {
         setFavoriteIds(favSet);
 
         const base = vRes.data?.data ?? [];
+        const filtered = mode === "favorites" ? base.filter((v) => favSet.has(v.id)) : base;
 
-        const filtered =
-          mode === "favorites" ? base.filter((v) => favSet.has(v.id)) : base;
-
-        // If logged-out + Nearby + empty + no search -> auto switch to All once
         if (
           !isAuthed &&
           mode === "nearby" &&
@@ -124,12 +184,11 @@ export default function Browse() {
           autoSwitchedRef.current = true;
           setMode("all");
           setAutoSwitchNote("No nearby vendors found — showing all vendors instead.");
-          return; // let next effect run
+          return;
         } else {
           setAutoSwitchNote(null);
         }
 
-        // Recompute pagination client-side after filtering so the counts are correct
         const total = filtered.length;
         const last = Math.max(1, Math.ceil(total / perPage));
         const start = (page - 1) * perPage;
@@ -175,18 +234,17 @@ export default function Browse() {
   // vendor filter options for products tab
   const vendorOptions = useVendorOptions();
 
+  // reset page on major filter changes
   useEffect(() => {
     setPage(1);
   }, [tab, q, vendorIdFilter, mode, radius]);
 
   async function handleToggleFavorite(vendorId: number, next: boolean) {
-    // if not logged in, show gentle prompt instead of navigating
     if (!localStorage.getItem("token")) {
       setAuthPrompt(true);
       return;
     }
 
-    // optimistic UI
     setFavoriteIds((prev) => {
       const copy = new Set(prev);
       if (next) copy.add(vendorId);
@@ -198,7 +256,6 @@ export default function Browse() {
       if (next) await favoriteVendor(vendorId);
       else await unfavoriteVendor(vendorId);
     } catch (e: any) {
-      // revert on failure
       setFavoriteIds((prev) => {
         const copy = new Set(prev);
         if (next) copy.delete(vendorId);
@@ -357,7 +414,6 @@ export default function Browse() {
       {/* Lists */}
       {tab === "vendors" ? (
         <>
-          {/* Special empty state when Favorites mode has no vendors */}
           {mode === "favorites" && !vendorsLoading && !vendorsError && (vendors?.total ?? 0) === 0 ? (
             <div className="py-10 text-center text-sm text-base-content/80">
               You have no favorite vendors yet.
@@ -395,7 +451,12 @@ export default function Browse() {
         >
           <div className="grid grid-cols-1 gap-3">
             {products?.data.map((p) => (
-              <ProductCard key={p.id} product={p} />
+              <ProductCard
+                key={p.id}
+                product={p}
+                to={`/products/${p.id}`}
+                state={{ from: window.location.pathname + window.location.search }}
+              />
             ))}
           </div>
         </ListShell>

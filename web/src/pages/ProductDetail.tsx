@@ -1,8 +1,8 @@
 // web/src/pages/ProductDetail.tsx
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import Lightbox from "../components/Lightbox";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 
 type Variant = {
   id: number;
@@ -22,9 +22,14 @@ type Product = {
   image_url?: string | null;
 };
 
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,12 +37,10 @@ export default function ProductDetail() {
 
   // subscribe form
   const [variantId, setVariantId] = useState<number | "">("");
-  const [quantity, setQuantity] = useState<number>(1);                 // NEW
+  const [quantity, setQuantity] = useState<number>(1);
   const [frequency, setFrequency] =
     useState<"weekly" | "biweekly" | "monthly">("weekly");
-  const [startDate, setStartDate] = useState<string>(
-    () => new Date().toISOString().slice(0, 10)
-  );
+  const [startDate, setStartDate] = useState<string>(todayISO());
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -46,6 +49,11 @@ export default function ProductDetail() {
   const [showImg, setShowImg] = useState(false);
   const [imgHidden, setImgHidden] = useState(false);
 
+  // availability map: { [product_variant_id]: available_qty_today }
+  const [availableTodayByVariant, setAvailableTodayByVariant] = useState<Record<number, number>>({});
+  const [availLoading, setAvailLoading] = useState(false);
+
+  // Load product
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -59,11 +67,45 @@ export default function ProductDetail() {
     };
   }, [id]);
 
+  // Default variant
   useEffect(() => {
     if (product && product.variants?.length && variantId === "") {
       setVariantId(product.variants[0].id);
     }
   }, [product, variantId]);
+
+  // Fetch today's availability for all variants of this product (if vendor known)
+  useEffect(() => {
+    if (!product?.vendor?.id) return;
+    let cancelled = false;
+    setAvailLoading(true);
+
+    api
+      .get(`/vendors/${product.vendor.id}/inventory`, {
+        params: { date: todayISO() },
+      })
+      .then((r) => {
+        if (cancelled) return;
+        // Expecting { variants: [{ product_variant_id, available_qty, ... }, ...] }
+        const rows: any[] = r.data?.variants ?? [];
+        const map: Record<number, number> = {};
+        for (const row of rows) {
+          const vid = Number(row.product_variant_id);
+          const avail = Number(row.available_qty ?? 0);
+          if (Number.isFinite(vid)) map[vid] = avail;
+        }
+        setAvailableTodayByVariant(map);
+      })
+      .catch(() => {
+        // fail-soft: leave as empty map (treat as unknown availability)
+        setAvailableTodayByVariant({});
+      })
+      .finally(() => !cancelled && setAvailLoading(false));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [product?.vendor?.id]);
 
   async function onSubscribe() {
     if (!variantId || !startDate || quantity < 1) return;
@@ -73,7 +115,7 @@ export default function ProductDetail() {
         product_variant_id: Number(variantId),
         start_date: startDate,
         frequency,
-        quantity,                              // NEW (backend can ignore if not used)
+        quantity,
         notes: notes || undefined,
       });
       setToast("Subscription created!");
@@ -95,13 +137,26 @@ export default function ProductDetail() {
   if (err || !product) return <div className="p-4 text-error">{err ?? "Not found"}</div>;
 
   const minPrice = Math.min(...(product.variants || []).map((v) => v.price_cents));
-  const selected = product.variants.find(v => v.id === variantId);
+  const selected = product.variants.find((v) => v.id === variantId);
   const unitPrice = selected?.price_cents ?? (Number.isFinite(minPrice) ? minPrice : undefined);
-  const total = typeof unitPrice === "number" ? (unitPrice * Math.max(1, quantity)) : undefined;
+  const total = typeof unitPrice === "number" ? unitPrice * Math.max(1, quantity) : undefined;
+
+  // Out-of-stock logic: if we know today's availability and it's <= 0 for the selected variant
+  const selectedAvailToday =
+    typeof variantId === "number" ? availableTodayByVariant[variantId] : undefined;
+  const outOfStockToday =
+    typeof selectedAvailToday === "number" ? selectedAvailToday <= 0 : false;
 
   return (
     <div className="mx-auto max-w-2xl p-4">
-      <button onClick={() => navigate(-1)} className="text-sm text-primary hover:underline">
+      <button
+        onClick={() => {
+          const from = (location.state as any)?.from;
+          if (typeof from === "string" && from) navigate(from);
+          else navigate(-1);
+        }}
+        className="text-sm text-primary hover:underline"
+      >
         &larr; Back
       </button>
 
@@ -123,13 +178,9 @@ export default function ProductDetail() {
         <div className="text-sm text-base-content/80">{product.vendor.name}</div>
       )}
       {Number.isFinite(minPrice) && (
-        <div className="mt-1 text-sm font-semibold">
-          ${(minPrice / 100).toFixed(2)}+
-        </div>
+        <div className="mt-1 text-sm font-semibold">${(minPrice / 100).toFixed(2)}+</div>
       )}
-      {product.description && (
-        <p className="mt-3 text-base-content">{product.description}</p>
-      )}
+      {product.description && <p className="mt-3 text-base-content">{product.description}</p>}
 
       {/* Subscribe box */}
       <div className="mt-6 space-y-3 rounded-xl border border-base-300 p-4">
@@ -148,14 +199,29 @@ export default function ProductDetail() {
           ))}
         </select>
 
-        {/* Quantity (NEW) */}
+        {/* Availability note */}
+        {availLoading ? (
+          <div className="text-xs text-base-content/70">Checking today’s availability…</div>
+        ) : typeof selectedAvailToday === "number" ? (
+          <div
+            className={`text-xs ${
+              outOfStockToday ? "text-error" : "text-base-content/70"
+            }`}
+          >
+            {outOfStockToday
+              ? "Out of stock today"
+              : `Available today: ${selectedAvailToday}`}
+          </div>
+        ) : null}
+
+        {/* Quantity */}
         <div>
           <div className="text-xs text-base-content/80 mb-1">Quantity</div>
           <div className="flex items-stretch gap-2">
             <button
               type="button"
               className="btn"
-              onClick={() => setQuantity(q => Math.max(1, q - 1))}
+              onClick={() => setQuantity((q) => Math.max(1, q - 1))}
               aria-label="Decrease quantity"
             >
               −
@@ -174,7 +240,7 @@ export default function ProductDetail() {
             <button
               type="button"
               className="btn"
-              onClick={() => setQuantity(q => q + 1)}
+              onClick={() => setQuantity((q) => q + 1)}
               aria-label="Increase quantity"
             >
               +
@@ -183,9 +249,7 @@ export default function ProductDetail() {
           {typeof unitPrice === "number" && (
             <div className="mt-1 text-xs text-base-content/70">
               Unit: ${(unitPrice / 100).toFixed(2)} · Total:{" "}
-              <span className="font-medium">
-                ${(total! / 100).toFixed(2)}
-              </span>
+              <span className="font-medium">${((total ?? 0) / 100).toFixed(2)}</span>
             </div>
           )}
         </div>
@@ -227,10 +291,18 @@ export default function ProductDetail() {
 
         <button
           onClick={onSubscribe}
-          disabled={submitting || !variantId || !startDate || quantity < 1}
-          className="btn btn-primary w-full rounded-lg disabled:opacity-60"
+          disabled={
+            submitting || !variantId || !startDate || quantity < 1 || outOfStockToday
+          }
+          className={`btn w-full rounded-lg disabled:opacity-60 ${
+            outOfStockToday ? "btn-ghost border border-base-300" : "btn-primary"
+          }`}
         >
-          {submitting ? "Creating…" : "Subscribe"}
+          {submitting
+            ? "Creating…"
+            : outOfStockToday
+            ? "Out of stock"
+            : "Subscribe"}
         </button>
       </div>
 

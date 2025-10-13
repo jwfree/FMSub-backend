@@ -13,7 +13,7 @@ const THEMES = [
 
 export default function ThemeSwitcher() {
   const [theme, setTheme] = useState<string>(
-    () => localStorage.getItem("theme") || "farmers"
+    () => localStorage.getItem("theme") || "autumn"
   );
 
   // apply on mount + whenever it changes

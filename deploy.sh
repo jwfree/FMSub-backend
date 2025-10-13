@@ -9,21 +9,58 @@ API_URL="https://fmsub.fbwks.com/api"
 FRONTEND_URL="https://fmsubapp.fbwks.com"
 # ----------------------------------------
 
-echo "==> Building frontend with VITE_API_URL=${API_URL}"
+# ---- utils ----
+log() { printf "\n==> %s\n" "$*"; }
+warn() { printf "\n[warn] %s\n" "$*" >&2; }
+die() { printf "\n[error] %s\n" "$*" >&2; exit 1; }
+
+# Make rsync a bit more resilient on shared hosts (keepalive)
+export RSYNC_RSH="ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=6"
+
+# Common rsync opts for robustness + nice progress:
+# Use only options supported by older rsync versions (BlueHost often runs <3.1)
+RSYNC_BASE_OPTS=(-az --human-readable --delete-after --partial --inplace --stats --progress)
+
+rsync_with_retry() {
+  # usage: rsync_with_retry <rsync-args...>
+  local max=3 attempt=1
+  while :; do
+    if rsync "${RSYNC_BASE_OPTS[@]}" "$@"; then
+      return 0
+    fi
+    if (( attempt >= max )); then
+      die "rsync failed after ${max} attempts"
+    fi
+    warn "rsync failed (attempt ${attempt}/${max}). Retrying in 3s…"
+    sleep 3
+    attempt=$((attempt+1))
+  done
+}
+
+log "Building frontend with VITE_API_URL=${API_URL}"
 pushd web >/dev/null
 printf "VITE_API_URL=%s\n" "$API_URL" > .env.production
-npm install
+
+# prefer npm ci if lockfile present
+if [ -f package-lock.json ]; then
+  npm ci
+else
+  npm install
+fi
+
 npm run build
 popd >/dev/null
 
-echo "==> Removing any web/dist/.htaccess (we deploy our own)"
+log "Removing any web/dist/.htaccess (we deploy our own)"
 rm -f web/dist/.htaccess || true
 
-echo "==> Uploading frontend to $HOST_ALIAS:$REMOTE_FRONTEND_DIR (excluding any .htaccess)"
-# we explicitly exclude .htaccess from dist just in case
-rsync -az --delete --exclude='.htaccess' web/dist/ "$HOST_ALIAS:$REMOTE_FRONTEND_DIR/"
+log "Uploading frontend to $HOST_ALIAS:$REMOTE_FRONTEND_DIR (excluding any .htaccess/.DS_Store)"
+rsync_with_retry \
+  --exclude='.htaccess' \
+  --exclude='.DS_Store' \
+  web/dist/ "$HOST_ALIAS:$REMOTE_FRONTEND_DIR/"
 
-echo "==> Ensuring SPA .htaccess exists on remote (no RewriteBase)"
+log "Ensuring SPA .htaccess exists on remote (no RewriteBase)"
 ssh -T "$HOST_ALIAS" bash <<'EOF_HTACCESS'
 set -euo pipefail
 FRONT_DIR="/home4/fbwkscom/public_html/fmsubapp"
@@ -51,7 +88,16 @@ head -n 20 "$FRONT_DIR/.htaccess" || true
 echo "------------------------"
 EOF_HTACCESS
 
-echo "==> Syncing backend source to $HOST_ALIAS:$REMOTE_APP_DIR"
+# Quick integrity check: dry-run with checksums; if anything would copy, warn
+log "Verifying frontend upload (checksum dry-run)"
+if rsync -az --checksum --dry-run --delete-after --exclude='.htaccess' --exclude='.DS_Store' web/dist/ "$HOST_ALIAS:$REMOTE_FRONTEND_DIR/" | grep -qvE '^\s*$'; then
+  warn "Checksum verification found differences after upload. A second sync will run."
+  rsync_with_retry --checksum --exclude='.htaccess' --exclude='.DS_Store' web/dist/ "$HOST_ALIAS:$REMOTE_FRONTEND_DIR/"
+else
+  log "Frontend verified."
+fi
+
+log "Syncing backend source to $HOST_ALIAS:$REMOTE_APP_DIR"
 # IMPORTANT: exclude public/storage to avoid uploading a local symlink
 RSYNC_EXCLUDES=(
   ".git/"
@@ -61,12 +107,13 @@ RSYNC_EXCLUDES=(
   ".env"
   "web/"
   "public/storage"    # <-- never upload local storage link/dir
+  ".DS_Store"
 )
 RSYNC_ARGS=()
 for e in "${RSYNC_EXCLUDES[@]}"; do RSYNC_ARGS+=(--exclude "$e"); done
-rsync -az --delete "${RSYNC_ARGS[@]}" ./ "$HOST_ALIAS:$REMOTE_APP_DIR/"
+rsync_with_retry "${RSYNC_ARGS[@]}" ./ "$HOST_ALIAS:$REMOTE_APP_DIR/"
 
-echo "==> Running server-side Composer/Artisan"
+log "Running server-side Composer/Artisan"
 ssh -T "$HOST_ALIAS" bash <<'EOF'
   set -euo pipefail
   APP_DIR="/home4/fbwkscom/apps/fmsub-backend"
@@ -88,7 +135,6 @@ ssh -T "$HOST_ALIAS" bash <<'EOF'
   chmod -R 775 storage bootstrap/cache || true
 
   echo "==> Fix/refresh storage symlink"
-  # Nuke any wrong link or leftover and recreate
   if [ -L public/storage ] || [ -d public/storage ] || [ -e public/storage ]; then
     rm -rf public/storage
   fi
@@ -121,10 +167,11 @@ ssh -T "$HOST_ALIAS" bash <<'EOF'
   curl -sfI "https://fmsub.fbwks.com/api/vendors/1/flyer.pdf" | head -n 1 || true
 
   echo "==> Health checks (SPA)"
-  curl -sfI "https://fmsubapp.fbwks.com/fmsubapp/" | head -n 1 || true
-  curl -sfI "https://fmsubapp.fbwks.com/fmsubapp/index.html" | head -n 1 || true
+  # NOTE: subdomain docroot is /, not /fmsubapp/
+  curl -sfI "https://fmsubapp.fbwks.com/" | head -n 1 || true
+  curl -sfI "https://fmsubapp.fbwks.com/index.html" | head -n 1 || true
 
   echo "Server deploy complete."
 EOF
 
-echo "==> Done. Frontend: ${FRONTEND_URL} | API: ${API_URL}/ping"
+log "Done. Frontend: ${FRONTEND_URL} | API: ${API_URL}/ping"

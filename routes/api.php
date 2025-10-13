@@ -113,6 +113,8 @@ Route::middleware('auth:sanctum')->group(function () {
             ->whereNumber(['vendor','id'])->middleware('can:update,vendor');
         Route::delete('/vendors/{vendor}/inventory/entries/{id}',  [InventoryController::class, 'destroy'])
             ->whereNumber(['vendor','id'])->middleware('can:update,vendor');
+        Route::post('/vendors/{vendor}/inventory/entries/bulk', [\App\Http\Controllers\InventoryController::class, 'storeBulk']
+            )->whereNumber('vendor')->middleware('can:update,vendor');
         });
         // Mark a delivery fulfilled (removes it from "reserved" on this date)
         Route::patch('/vendors/{vendor}/inventory/deliveries/{id}/fulfill', [InventoryController::class, 'fulfillDelivery'])

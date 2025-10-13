@@ -23,6 +23,8 @@ type Props = {
   product: Product;
   /** Path to link to (defaults to /products/:id). Pass null to render as a non-link card. */
   to?: string | null;
+  /** React Router state to attach to the link (e.g. { from: '/browse?tab=products' }). */
+  state?: any; // <-- NEW
   /** Optional actions area displayed bottom-right (e.g. edit/delete/pause buttons). */
   actions?: React.ReactNode;
 };
@@ -32,7 +34,7 @@ function centsToDollars(c?: number) {
   return `$${(c / 100).toFixed(2)}`;
 }
 
-export default function ProductCard({ product, to, actions }: Props) {
+export default function ProductCard({ product, to, state, actions }: Props) {
   const cheapest = product.variants?.length
     ? [...product.variants].sort(
         (a, b) => (a.price_cents ?? Infinity) - (b.price_cents ?? Infinity)
@@ -49,7 +51,7 @@ export default function ProductCard({ product, to, actions }: Props) {
 
   const CardShell: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     isLink ? (
-      <Link to={href} className={cardClass} aria-label={product.name}>
+      <Link to={href} state={state} className={cardClass} aria-label={product.name}>
         {children}
       </Link>
     ) : (
@@ -91,8 +93,8 @@ export default function ProductCard({ product, to, actions }: Props) {
         </div>
 
         {!!cheapest?.price_cents && (
-        <div className="text-sm font-semibold shrink-0 text-[--color-primary]">
-              {centsToDollars(cheapest.price_cents)}
+          <div className="text-sm font-semibold shrink-0 text-[--color-primary]">
+            {centsToDollars(cheapest.price_cents)}
           </div>
         )}
       </div>
@@ -126,11 +128,11 @@ export default function ProductCard({ product, to, actions }: Props) {
           onKeyDown={
             isLink
               ? (e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  e.stopPropagation();
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }
                 }
-              }
               : undefined
           }
         >

@@ -65,7 +65,7 @@ export default function Account() {
                  value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(optional)"/>
         </div>
         {msg && <div className="text-xs text-blue-700">{msg}</div>}
-        <button className="w-full rounded bg-black text-primary-content py-2 text-sm disabled:opacity-60"
+        <button className="w-full btn btn-primary disabled:opacity-60"
                 disabled={saving}>
           {saving ? "Saving…" : "Save"}
         </button>
