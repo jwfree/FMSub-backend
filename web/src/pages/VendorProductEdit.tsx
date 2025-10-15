@@ -11,7 +11,6 @@ type Variant = {
   price_cents: number;
   currency?: string | null;
   active?: boolean;
-  // NEW
   quantity_per_unit?: number | null;
   unit_label?: string | null;
   sort_order?: number | null;
@@ -26,6 +25,7 @@ type Product = {
   active?: boolean;
   image_url?: string | null;
   variants: Variant[];
+  allow_waitlist?: boolean;
 };
 
 function toDollars(cents?: number | null): string {
@@ -55,6 +55,7 @@ export default function VendorProductEdit() {
   const [description, setDescription] = useState("");
   const [unit, setUnit] = useState("");
   const [active, setActive] = useState(true);
+  const [allowWaitlist, setAllowWaitlist] = useState(false);
 
   // For backward-compat first-variant payload during product PATCH
   const [firstVariantDraft, setFirstVariantDraft] = useState<{
@@ -93,6 +94,7 @@ export default function VendorProductEdit() {
         setDescription(p.description ?? "");
         setUnit(p.unit ?? "");
         setActive(p.active ?? true);
+        setAllowWaitlist(!!p.allow_waitlist);
 
         setVariants((p.variants || []).slice().sort(sortVariants));
 
@@ -171,28 +173,25 @@ export default function VendorProductEdit() {
 
     setSaving(true);
     try {
-      // Build FormData like before (keeps your backend PATCH contract)
-      const fd = new FormData();
-      fd.append("name", name);
-      if (description) fd.append("description", description);
-      fd.append("unit", unit);
-      fd.append("active", active ? "1" : "0");
-
-      // First/editable variant fields (optional)
-      if (firstVariantDraft.id != null) {
-        fd.append("variant[id]", String(firstVariantDraft.id));
-      }
-      fd.append("variant[sku]", firstVariantDraft.sku);
-      fd.append("variant[name]", firstVariantDraft.name || unit);
-      if (fvCents !== null) fd.append("variant[price_cents]", String(fvCents));
-      fd.append("variant[currency]", firstVariantDraft.currency || "USD");
-      fd.append("variant[active]", firstVariantDraft.active ? "1" : "0");
-
-      await api.patch(`/vendors/${vendorId}/products/${product.id}`, fd, {
-        headers: { "Content-Type": "multipart/form-data" },
+      // 1) PATCH product as JSON (includes allow_waitlist)
+      await api.patch(`/vendors/${vendorId}/products/${product.id}`, {
+        name,
+        description: description || null,
+        unit,
+        active,
+        allow_waitlist: allowWaitlist,
+        // keep your “first variant for product save” fields if backend expects them here
+        variant: {
+          id: firstVariantDraft.id ?? undefined,
+          sku: firstVariantDraft.sku || "",
+          name: firstVariantDraft.name || unit,
+          price_cents: fvCents ?? undefined,
+          currency: firstVariantDraft.currency || "USD",
+          active: firstVariantDraft.active,
+        },
       });
 
-      // optionally replace image
+      // 2) If there’s a new image, upload it via multipart to the image endpoint
       if (newImageFile) {
         const img = new FormData();
         img.append("image", newImageFile);
@@ -360,6 +359,18 @@ export default function VendorProductEdit() {
               Active
             </label>
           </div>
+
+          <div className="flex items-end">
+            <label className="inline-flex items-center gap-2 text-xs text-base-content">
+              <input
+                type="checkbox"
+                className="rounded"
+                checked={allowWaitlist}
+                onChange={(e) => setAllowWaitlist(e.target.checked)}
+              />
+              Allow waitlist when out of stock
+            </label>
+          </div>
         </div>
 
         <hr />
@@ -378,10 +389,7 @@ export default function VendorProductEdit() {
             workingId={vWorking}
           />
 
-          <AddVariantRow
-            onAdd={addVariant}
-            unitDefault={unit}
-          />
+          <AddVariantRow onAdd={addVariant} unitDefault={unit} />
         </div>
 
         <hr />
@@ -459,11 +467,7 @@ export default function VendorProductEdit() {
 
         {/* Actions */}
         <div className="flex gap-2">
-          <button
-            onClick={save}
-            disabled={saving}
-            className="btn btn-primary btn-sm"
-          >
+          <button onClick={save} disabled={saving} className="btn btn-primary btn-sm">
             {saving ? "Saving…" : "Save changes"}
           </button>
           <Link to={`/vendors/${vendorId}`} className="rounded border px-4 py-2 text-sm">
@@ -543,7 +547,7 @@ function VariantRow({
   const [draft, setDraft] = useState({
     name: variant.name ?? "",
     quantity_per_unit:
-      typeof variant.quantity_per_unit === "number" ? variant.quantity_per_unit : ("" as number | "" ),
+      typeof variant.quantity_per_unit === "number" ? variant.quantity_per_unit : ("" as number | ""),
     unit_label: variant.unit_label ?? "",
     price_dollars: toDollars(variant.price_cents),
     sku: variant.sku ?? "",

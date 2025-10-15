@@ -112,7 +112,7 @@ function Header({
           to="/browse"
           className="font-semibold tracking-tight text-base-content hover:text-primary"
         >
-          Farmer&apos;s Market Reserve
+          Farmers Market Reserve
         </Link>
 
         <nav className="flex items-center gap-4 text-sm">

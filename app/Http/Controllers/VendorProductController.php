@@ -68,28 +68,30 @@ class VendorProductController extends Controller
         $this->authorize('update', $vendor);
 
         $data = $request->validate([
-            'name'        => ['required','string','max:255'],
-            'description' => ['nullable','string','max:5000'],
-            'unit'        => ['required','string','max:64'],
-            'active'      => ['nullable','boolean'],
+            'name'            => ['required','string','max:255'],
+            'description'     => ['nullable','string','max:5000'],
+            'unit'            => ['required','string','max:64'],
+            'active'          => ['nullable','boolean'],
+            'allow_waitlist'  => ['nullable','boolean'], // <-- added
 
-            'image'       => ['nullable','file','max:4096','mimes:jpeg,jpg,png,gif,webp,heic,heif'],
+            'image'           => ['nullable','file','max:4096','mimes:jpeg,jpg,png,gif,webp,heic,heif'],
 
-            'variant'             => ['required','array'],
-            'variant.sku'         => ['nullable','string','max:64'],
-            'variant.name'        => ['nullable','string','max:255'],
-            'variant.price_cents' => ['required','integer','min:0'],
-            'variant.currency'    => ['nullable','string','size:3'],
-            'variant.active'      => ['nullable','boolean'],
+            'variant'                 => ['required','array'],
+            'variant.sku'             => ['nullable','string','max:64'],
+            'variant.name'            => ['nullable','string','max:255'],
+            'variant.price_cents'     => ['required','integer','min:0'],
+            'variant.currency'        => ['nullable','string','size:3'],
+            'variant.active'          => ['nullable','boolean'],
         ]);
 
         return DB::transaction(function () use ($vendor, $request, $data) {
             $product = Product::create([
-                'vendor_id'   => $vendor->id,
-                'name'        => $data['name'],
-                'description' => $data['description'] ?? null,
-                'unit'        => $data['unit'],
-                'active'      => (bool)($data['active'] ?? true),
+                'vendor_id'       => $vendor->id,
+                'name'            => $data['name'],
+                'description'     => $data['description'] ?? null,
+                'unit'            => $data['unit'],
+                'active'          => (bool)($data['active'] ?? true),
+                'allow_waitlist'  => (bool)($data['allow_waitlist'] ?? false), // <-- added
             ]);
 
             if ($request->hasFile('image')) {
@@ -109,12 +111,12 @@ class VendorProductController extends Controller
             }
 
             ProductVariant::create([
-                'product_id'  => $product->id,
-                'sku'         => $sku, // never null
-                'name'        => $v['name'] ?? $product->unit,
-                'price_cents' => (int) $v['price_cents'],
-                'currency'    => strtoupper($v['currency'] ?? 'USD'),
-                'active'      => (bool)($v['active'] ?? true),
+                'product_id'   => $product->id,
+                'sku'          => $sku, // never null
+                'name'         => $v['name'] ?? $product->unit,
+                'price_cents'  => (int) $v['price_cents'],
+                'currency'     => strtoupper($v['currency'] ?? 'USD'),
+                'active'       => (bool)($v['active'] ?? true),
             ]);
 
             return response()->json(
@@ -133,18 +135,38 @@ class VendorProductController extends Controller
             return response()->json(['message' => 'Product does not belong to this vendor'], 404);
         }
 
+        // Validate simple fields + the flag
         $data = $request->validate([
-            'name'        => ['sometimes','string','max:255'],
-            'description' => ['sometimes','nullable','string','max:5000'],
-            'unit'        => ['sometimes','string','max:64'],
-            'active'      => ['sometimes','boolean'],
+            'name'           => ['sometimes','string','max:255'],
+            'description'    => ['sometimes','nullable','string','max:5000'],
+            'unit'           => ['sometimes','string','max:64'],
+            'active'         => ['sometimes','boolean'],
+            'allow_waitlist' => ['sometimes','boolean'],
         ]);
 
-        $product->fill($data)->save();
+        // Fill regular fields
+        $product->fill($data);
 
-        return response()->json($product->fresh());
+        // IMPORTANT: with multipart/form-data we must treat "0" as present, so use exists()
+        if ($request->exists('allow_waitlist')) {
+            $product->allow_waitlist = $request->boolean('allow_waitlist');
+        }
+
+        $product->save();
+
+        // If for any reason Eloquent didn't mark the column dirty, force an update once.
+        if (!$product->wasChanged('allow_waitlist') && $request->exists('allow_waitlist')) {
+            \DB::table('products')
+                ->where('id', $product->id)
+                ->update(['allow_waitlist' => $request->boolean('allow_waitlist') ? 1 : 0]);
+            $product->refresh();
+        }
+
+        //return response()->json($product);
+        return response()
+            ->json($product)
+            ->header('X-VC-Update-Hit', 'vendor-product-update');
     }
-
     // DELETE /api/vendors/{vendor}/products/{product}
     public function destroy(Vendor $vendor, Product $product)
     {

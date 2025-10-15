@@ -10,11 +10,12 @@ class InventoryEntry extends Model
 
     protected $fillable = [
         'vendor_id','vendor_location_id','product_id','product_variant_id',
-        'for_date','qty','entry_type','note','created_by',
+        'for_date','qty','entry_type','note','created_by','shelf_life_days',
     ];
 
     protected $casts = [
         'for_date' => 'date',
         'qty'      => 'integer',
+        'shelf_life_days' => 'integer',
     ];
 }

@@ -19,15 +19,22 @@ api.interceptors.request.use((cfg) => {
 
 export default api;
 
+
 /* ----------------------------- Favorites API ----------------------------- */
 
 export async function getMyFavoriteVendors(): Promise<number[]> {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    // 👇 Skip the network call entirely if user not logged in
+    return [];
+  }
+
   try {
-    const r = await api.get<{ data: Array<{ id: number }> }>("/my/vendors/favorites");
-    // API returns full vendor objects; we only need ids here
-    return (r.data?.data ?? []).map((v: any) => v.id);
-  } catch {
-    // unauthenticated callers get empty favorites
+    // ✅ Server returns an array, not { data: [...] }
+    const r = await api.get<Array<{ id: number }>>("/my/vendors/favorites");
+    return (r.data ?? []).map((v: any) => v.id);
+  } catch (err) {
+    console.warn("getMyFavoriteVendors error:", err);
     return [];
   }
 }
@@ -35,6 +42,7 @@ export async function getMyFavoriteVendors(): Promise<number[]> {
 export function favoriteVendor(vendorId: number) {
   return api.post(`/vendors/${vendorId}/favorite`);
 }
+
 export function unfavoriteVendor(vendorId: number) {
   return api.delete(`/vendors/${vendorId}/favorite`);
 }
@@ -49,6 +57,18 @@ export function listVendorProductsMinimal(vendorId: number, params?: Record<stri
 
 /* -------------------------------- Inventory ------------------------------ */
 
+type InventoryEntryPayload = {
+  product_id: number;
+  product_variant_id: number;
+  for_date: string; // YYYY-MM-DD
+  qty: number;
+  note?: string;
+  entry_type: "add" | "adjust";
+  vendor_location_id?: number | null;
+  /** NEW: how many days this entry is valid for; null/undefined means never expires */
+  shelf_life_days?: number | null;
+};
+
 export function getVendorInventory(
   vendorId: number,
   params: { date: string; location_id?: number }
@@ -56,38 +76,72 @@ export function getVendorInventory(
   return api.get(`/vendors/${vendorId}/inventory`, { params });
 }
 
-export function addInventoryEntry(
-  vendorId: number,
-  payload: {
-    product_id: number;
-    product_variant_id: number;
-    for_date: string;
-    qty: number;
-    note?: string;
-    entry_type: "add" | "adjust";
-    vendor_location_id?: number | null;
-  }
-) {
+export function addInventoryEntry(vendorId: number, payload: InventoryEntryPayload) {
   return api.post(`/vendors/${vendorId}/inventory/entries`, payload);
 }
 
 /** Bulk add (+ preview via dry_run) */
+// Back-compat: accept either the new shape ({ pattern: { kind, n? }, entry_type })
+// or the old one (pattern as string + every_n_days). We normalize before POST.
+type BulkInventoryPayloadNew = {
+  product_id: number;
+  product_variant_id: number;
+  vendor_location_id?: number | null;
+  start_date: string; // YYYY-MM-DD
+  end_date: string;   // YYYY-MM-DD
+  qty: number;
+  entry_type: "add" | "adjust";
+  note?: string;
+  pattern: { kind: "daily" | "every_n_days" | "weekly" | "monthly"; n?: number };
+  dry_run?: boolean;
+  shelf_life_days?: number | null; // NEW
+};
+
+// legacy shape you previously had in this file
+type BulkInventoryPayloadLegacy = {
+  product_id: number;
+  product_variant_id: number;
+  vendor_location_id?: number | null;
+  start_date: string;
+  end_date: string;
+  pattern: "daily" | "every_n_days" | "weekly" | "monthly";
+  every_n_days?: number;
+  qty: number;
+  note?: string;
+  dry_run?: boolean;
+  // (no entry_type in legacy; if omitted we’ll default to "add")
+  entry_type?: "add" | "adjust";
+  shelf_life_days?: number | null;
+};
+
 export function addInventoryEntriesBulk(
   vendorId: number,
-  payload: {
-    product_id: number;
-    product_variant_id: number;
-    vendor_location_id?: number | null;
-    start_date: string; // YYYY-MM-DD
-    end_date: string;   // YYYY-MM-DD
-    pattern: "daily" | "every_n_days" | "weekly" | "monthly";
-    every_n_days?: number;
-    qty: number;
-    note?: string;
-    dry_run?: boolean; // 👈 allows preview without creating
-  }
+  payload: BulkInventoryPayloadNew | BulkInventoryPayloadLegacy
 ) {
-  return api.post(`/vendors/${vendorId}/inventory/entries/bulk`, payload);
+  // Normalize to the controller’s new expected payload
+  const normalized: BulkInventoryPayloadNew = "pattern" in payload && typeof (payload as any).pattern === "object"
+    ? (payload as BulkInventoryPayloadNew)
+    : {
+        product_id: payload.product_id,
+        product_variant_id: payload.product_variant_id,
+        vendor_location_id: payload.vendor_location_id ?? null,
+        start_date: payload.start_date,
+        end_date: payload.end_date,
+        qty: payload.qty,
+        note: payload.note,
+        dry_run: payload.dry_run,
+        entry_type: (payload as any).entry_type ?? "add",
+        shelf_life_days: payload.shelf_life_days ?? null,
+        pattern: {
+          kind: (payload as BulkInventoryPayloadLegacy).pattern,
+          n:
+            (payload as BulkInventoryPayloadLegacy).pattern === "every_n_days"
+              ? (payload as BulkInventoryPayloadLegacy).every_n_days ?? 2
+              : undefined,
+        },
+      };
+
+  return api.post(`/vendors/${vendorId}/inventory/entries/bulk`, normalized);
 }
 
 /** Vendor locations for filtering / choosing */
@@ -107,4 +161,43 @@ export function markDeliveryFulfilled(vendorId: number, deliveryId: number) {
 
 export function markDeliveryCancelled(vendorId: number, deliveryId: number) {
   return api.post(`/vendors/${vendorId}/deliveries/${deliveryId}/cancel`);
+}
+
+export type UserAddress = {
+  id: number;
+  label?: string | null;
+  recipient_name?: string | null;
+  phone?: string | null;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  state?: string | null;
+  postal_code: string;
+  country: string;
+  is_default: boolean;
+  instructions?: string | null;
+};
+
+export function listMyAddresses() {
+  return api.get<UserAddress[]>('/me/addresses');
+}
+export function createMyAddress(payload: Partial<UserAddress>) {
+  return api.post<UserAddress>('/me/addresses', payload);
+}
+export function updateMyAddress(id: number, payload: Partial<UserAddress>) {
+  return api.patch<UserAddress>(`/me/addresses/${id}`, payload);
+}
+export function deleteMyAddress(id: number) {
+  return api.delete(`/me/addresses/${id}`);
+}
+export function makeDefaultAddress(id: number) {
+  return api.post<UserAddress>(`/me/addresses/${id}/default`, {});
+}
+
+export function changeMyPassword(payload: {
+  current_password: string;
+  new_password: string;
+  new_password_confirmation: string;
+}) {
+  return api.post('/account/change-password', payload);
 }

@@ -18,6 +18,12 @@ use App\Http\Controllers\VariantController;
 
 use App\Http\Controllers\InventoryController;
 
+use App\Http\Controllers\WaitlistController;
+
+use App\Http\Controllers\UserAddressController;
+
+
+
 
 /*
 |--------------------------------------------------------------------------
@@ -57,7 +63,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/vendors/{vendor}/favorite',  [\App\Http\Controllers\VendorFavoritesController::class, 'store']);
     Route::delete('/vendors/{vendor}/favorite',[\App\Http\Controllers\VendorFavoritesController::class, 'destroy']);
     Route::get('/my/vendors/favorites',        [\App\Http\Controllers\VendorFavoritesController::class, 'index']);    
+    Route::post('/account/change-password', [AccountController::class, 'changePassword']);
 
+});
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/me/addresses',        [UserAddressController::class, 'index']);
+    Route::post('/me/addresses',       [UserAddressController::class, 'store']);
+    Route::patch('/me/addresses/{id}', [UserAddressController::class, 'update']);
+    Route::delete('/me/addresses/{id}',[UserAddressController::class, 'destroy']);
+    Route::post('/me/addresses/{id}/default', [UserAddressController::class, 'makeDefault']);
 });
 
 // ---------------------------------------------------------------------
@@ -75,6 +90,10 @@ Route::get('/vendors/{vendor}/flyer.pdf', [VendorMediaController::class, 'flyer'
 // Products (public browse)
 Route::get('/products',                   [ProductsController::class, 'index']);
 Route::get('/products/{product}',         [ProductsController::class, 'show'])->whereNumber('product');
+
+// --- Inventory (READ is public for procut availability) ---
+Route::get   ('/vendors/{vendor}/inventory',               [InventoryController::class, 'index'])
+    ->whereNumber('vendor');
 
 // ---------------------------------------------------------------------
 // Authenticated vendor actions
@@ -105,8 +124,7 @@ Route::middleware('auth:sanctum')->group(function () {
         ->whereNumber('variant');
 
         // --- Inventory (vendor) ---
-        Route::get   ('/vendors/{vendor}/inventory',               [InventoryController::class, 'index'])
-            ->whereNumber('vendor')->middleware('can:view,vendor');
+
         Route::post  ('/vendors/{vendor}/inventory/entries',       [InventoryController::class, 'store'])
             ->whereNumber('vendor')->middleware('can:update,vendor');
         Route::patch ('/vendors/{vendor}/inventory/entries/{id}',  [InventoryController::class, 'update'])
@@ -120,6 +138,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/vendors/{vendor}/inventory/deliveries/{id}/fulfill', [InventoryController::class, 'fulfillDelivery'])
             ->whereNumber(['vendor','id'])
             ->middleware('can:update,vendor');
+
+        Route::post('/waitlist', [WaitlistController::class, 'store']); // auth optional
+        Route::middleware('auth:sanctum')->group(function () {
+            Route::get('/vendors/{vendor}/waitlist', [WaitlistController::class, 'indexByVendor']);
+            Route::delete('/vendors/{vendor}/waitlist/{entry}', [WaitlistController::class, 'destroy']);
+            Route::post('/vendors/{vendor}/waitlist/{entry}/convert', [WaitlistController::class, 'convertToOrder']);
+        });
 
     // Subscriptions (MVP)
     Route::get ('/subscriptions/mine',                  [SubscriptionsController::class, 'mine']);

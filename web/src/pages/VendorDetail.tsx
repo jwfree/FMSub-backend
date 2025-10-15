@@ -68,6 +68,7 @@ export default function VendorDetail() {
 
   const [authPrompt, setAuthPrompt] = useState(false);
   const nextUrl = `${window.location.pathname}${window.location.search}`; 
+  const FAVORITES_VERSION_KEY = "__favorites_version";
 
   function fetchVendor() {
     return api.get(`/vendors/${id}`, { params: { include_inactive: 1 } }).then(r => r.data as Vendor);
@@ -155,23 +156,25 @@ export default function VendorDetail() {
   }
 
   // --- Favorites (heart) ---
-  async function toggleFavorite() {
+    async function toggleFavorite() {
     if (!vendor) return;
-
-    // not logged in? show gentle prompt
     if (!localStorage.getItem("token")) {
       setAuthPrompt(true);
       return;
     }
-
     const desired = !(vendor.is_favorite ?? false);
-    setVendor({ ...vendor, is_favorite: desired }); // optimistic
+    setVendor({ ...vendor, is_favorite: desired });
 
     try {
       if (desired) await favoriteVendor(vendor.id);
       else await unfavoriteVendor(vendor.id);
+
+      // bump version
+      const ver = Number(localStorage.getItem(FAVORITES_VERSION_KEY) || "0") + 1;
+      localStorage.setItem(FAVORITES_VERSION_KEY, ver.toString());
+
     } catch (e: any) {
-      setVendor({ ...vendor, is_favorite: !desired }); // revert
+      setVendor({ ...vendor, is_favorite: !desired });
       if (e?.response?.status === 401) {
         setAuthPrompt(true);
         return;
@@ -264,6 +267,13 @@ export default function VendorDetail() {
       )}
 
       {/* Header row */}
+      <div>
+          {(vendor.flyer_text || vendor.description) && (
+            <div className="mt-2 mb-4 text-xl font-semibold text-primary text-center">
+              {vendor.flyer_text || vendor.description}
+            </div>
+          )}
+      </div>
       <div className="flex items-start gap-3">
         {photoUrl && (
           <>
@@ -312,7 +322,8 @@ export default function VendorDetail() {
           </div>
         )}
         <div className="flex-1">
-          <div className="flex items-start justify-between gap-3">
+
+            <div className="flex items-start justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold">{vendor.name}</h1>
               <div className="text-xs text-base-content/80 mt-1 space-y-0.5">
@@ -334,11 +345,7 @@ export default function VendorDetail() {
             </button>
           </div>
 
-          {(vendor.flyer_text || vendor.description) && (
-            <div className="mt-4 text-xl text-center">
-              {vendor.flyer_text || vendor.description}
-            </div>
-          )}
+         
         </div>
 
         {vendor.can_edit && (

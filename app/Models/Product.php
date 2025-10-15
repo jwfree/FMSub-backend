@@ -17,10 +17,12 @@ class Product extends Model
         'unit',
         'image_path',   // stored on public disk
         'active',       // boolean
+        'allow_waitlist',
     ];
 
     protected $casts = [
         'active' => 'boolean',
+        'allow_waitlist' => 'boolean',
     ];
 
     protected $appends = [

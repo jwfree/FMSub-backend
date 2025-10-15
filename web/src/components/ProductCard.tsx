@@ -15,18 +15,20 @@ export type Product = {
   vendor?: { id: number; name: string };
   variants?: ProductVariant[];
   image_url?: string | null;
-  active?: boolean;          // backend uses `active`
-  is_active?: boolean;       // tolerate older shape
+  active?: boolean;            // backend uses `active`
+  is_active?: boolean;         // tolerate older shape
+  any_available?: number | boolean; // 0/1 or boolean
+  allow_waitlist?: boolean;
+  available_qty?: number | string;  // <-- accept string or number
 };
 
 type Props = {
   product: Product;
-  /** Path to link to (defaults to /products/:id). Pass null to render as a non-link card. */
   to?: string | null;
-  /** React Router state to attach to the link (e.g. { from: '/browse?tab=products' }). */
-  state?: any; // <-- NEW
-  /** Optional actions area displayed bottom-right (e.g. edit/delete/pause buttons). */
+  state?: any;
   actions?: React.ReactNode;
+  showAvailability?: boolean;
+  allowWaitlist?: boolean;
 };
 
 function centsToDollars(c?: number) {
@@ -34,7 +36,12 @@ function centsToDollars(c?: number) {
   return `$${(c / 100).toFixed(2)}`;
 }
 
-export default function ProductCard({ product, to, state, actions }: Props) {
+export default function ProductCard({
+  product,
+  to,
+  state,
+  actions,
+}: Props) {
   const cheapest = product.variants?.length
     ? [...product.variants].sort(
         (a, b) => (a.price_cents ?? Infinity) - (b.price_cents ?? Infinity)
@@ -43,6 +50,22 @@ export default function ProductCard({ product, to, state, actions }: Props) {
 
   const href = to ?? `/products/${product.id}`;
   const isLink = to !== null; // null => non-link card
+
+  const isActive = (product.active ?? product.is_active ?? true) === true;
+
+  // any_available can be boolean or 0/1
+  const isAvailable =
+    typeof product.any_available === "boolean"
+      ? product.any_available
+      : product.any_available == null
+      ? true
+      : Number(product.any_available) > 0;
+
+  // Normalize available_qty which may arrive as a string ("14")
+  const availableQty =
+    product.available_qty === undefined || product.available_qty === null
+      ? undefined
+      : Number(product.available_qty);
 
   const cardClass =
     "block w-full text-left rounded-2xl shadow p-4 bg-base-100 " +
@@ -78,7 +101,7 @@ export default function ProductCard({ product, to, state, actions }: Props) {
           <div>
             <h3 className="text-base font-semibold text-base-content">
               {product.name}
-              {!(product.active ?? product.is_active ?? true) && (
+              {!isActive && (
                 <span className="ml-2 text-xs rounded bg-base-200 px-1.5 py-0.5 align-middle text-base-content/80">
                   inactive
                 </span>
@@ -105,10 +128,42 @@ export default function ProductCard({ product, to, state, actions }: Props) {
         </p>
       )}
 
+      {/* Availability line */}
+      {isActive && (
+        <>
+          {isAvailable ? (
+            <div className="mt-2 text-xs text-success">
+              In stock
+              {Number.isFinite(availableQty) && (availableQty ?? 0) > 0 && (
+                <> ({availableQty})</>
+              )}
+            </div>
+          ) : (
+            <div className="mt-2 text-xs text-warning">
+              Currently out of stock
+              {product.allow_waitlist ? (
+                <>
+                  {" — "}
+                  {isLink ? (
+                    <span className="underline">Join waitlist</span>
+                  ) : (
+                    <Link
+                      to={`/products/${product.id}?waitlist=1`}
+                      className="underline"
+                    >
+                      Join waitlist
+                    </Link>
+                  )}
+                </>
+              ) : null}
+            </div>
+          )}
+        </>
+      )}
+
       {actions && (
         <div
           className="mt-2 flex justify-end items-center gap-2"
-          // Prevent card navigation when clicking action buttons/links
           onClick={
             isLink
               ? (e) => {

@@ -20,6 +20,7 @@ type Product = {
   vendor?: { id: number; name: string };
   variants: Variant[];
   image_url?: string | null;
+  allow_waitlist?: boolean;
 };
 
 function todayISO(): string {
@@ -49,7 +50,7 @@ export default function ProductDetail() {
   const [showImg, setShowImg] = useState(false);
   const [imgHidden, setImgHidden] = useState(false);
 
-  // availability map: { [product_variant_id]: available_qty_today }
+  // availability map
   const [availableTodayByVariant, setAvailableTodayByVariant] = useState<Record<number, number>>({});
   const [availLoading, setAvailLoading] = useState(false);
 
@@ -74,19 +75,17 @@ export default function ProductDetail() {
     }
   }, [product, variantId]);
 
-  // Fetch today's availability for all variants of this product (if vendor known)
+  // Fetch today's availability
   useEffect(() => {
     if (!product?.vendor?.id) return;
     let cancelled = false;
     setAvailLoading(true);
-
     api
       .get(`/vendors/${product.vendor.id}/inventory`, {
         params: { date: todayISO() },
       })
       .then((r) => {
         if (cancelled) return;
-        // Expecting { variants: [{ product_variant_id, available_qty, ... }, ...] }
         const rows: any[] = r.data?.variants ?? [];
         const map: Record<number, number> = {};
         for (const row of rows) {
@@ -96,17 +95,14 @@ export default function ProductDetail() {
         }
         setAvailableTodayByVariant(map);
       })
-      .catch(() => {
-        // fail-soft: leave as empty map (treat as unknown availability)
-        setAvailableTodayByVariant({});
-      })
+      .catch(() => setAvailableTodayByVariant({}))
       .finally(() => !cancelled && setAvailLoading(false));
-
     return () => {
       cancelled = true;
     };
   }, [product?.vendor?.id]);
 
+  // --- Actions ---
   async function onSubscribe() {
     if (!variantId || !startDate || quantity < 1) return;
     setSubmitting(true);
@@ -120,19 +116,38 @@ export default function ProductDetail() {
       });
       setToast("Subscription created!");
       navigate("/subscriptions");
-      setTimeout(() => setToast(null), 1500);
     } catch (e: any) {
       if (e?.response?.status === 401) {
         window.location.href = `/account?next=/products/${id}`;
         return;
       }
       setToast(e?.response?.data?.message || "Failed to create subscription");
-      setTimeout(() => setToast(null), 2000);
     } finally {
       setSubmitting(false);
+      setTimeout(() => setToast(null), 2000);
     }
   }
 
+  async function onJoinWaitlist() {
+    if (!variantId) return;
+    setSubmitting(true);
+    try {
+      await api.post("/waitlist", {
+        product_id: product?.id,
+        product_variant_id: Number(variantId),
+        quantity,
+        notes: notes || undefined,
+      });
+      setToast("Added to waitlist!");
+    } catch (e: any) {
+      setToast(e?.response?.data?.message || "Failed to join waitlist");
+    } finally {
+      setSubmitting(false);
+      setTimeout(() => setToast(null), 2000);
+    }
+  }
+
+  // --- Derived state ---
   if (loading) return <div className="p-4 text-sm text-base-content/80">Loading…</div>;
   if (err || !product) return <div className="p-4 text-error">{err ?? "Not found"}</div>;
 
@@ -141,11 +156,19 @@ export default function ProductDetail() {
   const unitPrice = selected?.price_cents ?? (Number.isFinite(minPrice) ? minPrice : undefined);
   const total = typeof unitPrice === "number" ? unitPrice * Math.max(1, quantity) : undefined;
 
-  // Out-of-stock logic: if we know today's availability and it's <= 0 for the selected variant
   const selectedAvailToday =
     typeof variantId === "number" ? availableTodayByVariant[variantId] : undefined;
   const outOfStockToday =
     typeof selectedAvailToday === "number" ? selectedAvailToday <= 0 : false;
+
+  const canWaitlist = product.allow_waitlist && outOfStockToday;
+
+  let buttonText = "Subscribe";
+  if (outOfStockToday && !canWaitlist) buttonText = "Out of stock";
+  if (canWaitlist) buttonText = "Join waitlist";
+
+  const handleClick =
+    outOfStockToday && canWaitlist ? onJoinWaitlist : onSubscribe;
 
   return (
     <div className="mx-auto max-w-2xl p-4">
@@ -182,11 +205,11 @@ export default function ProductDetail() {
       )}
       {product.description && <p className="mt-3 text-base-content">{product.description}</p>}
 
-      {/* Subscribe box */}
+      {/* Subscribe / Waitlist box */}
       <div className="mt-6 space-y-3 rounded-xl border border-base-300 p-4">
         <div className="text-sm font-medium text-base-content">Choose an option</div>
 
-        {/* Variant */}
+        {/* Variant selector */}
         <select
           value={variantId}
           onChange={(e) => setVariantId(Number(e.target.value))}
@@ -209,7 +232,9 @@ export default function ProductDetail() {
             }`}
           >
             {outOfStockToday
-              ? "Out of stock today"
+              ? canWaitlist
+                ? "Currently out of stock — you can join the waitlist"
+                : "Out of stock today"
               : `Available today: ${selectedAvailToday}`}
           </div>
         ) : null}
@@ -254,6 +279,7 @@ export default function ProductDetail() {
           )}
         </div>
 
+        {/* Start date + frequency (restored) */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <div>
             <div className="text-xs text-base-content/80 mb-1">Start date</div>
@@ -278,6 +304,7 @@ export default function ProductDetail() {
           </div>
         </div>
 
+        {/* Notes */}
         <div>
           <div className="text-xs text-base-content/80 mb-1">Notes (optional)</div>
           <textarea
@@ -289,20 +316,25 @@ export default function ProductDetail() {
           />
         </div>
 
+        {/* Main action */}
         <button
-          onClick={onSubscribe}
+          onClick={handleClick}
           disabled={
-            submitting || !variantId || !startDate || quantity < 1 || outOfStockToday
+            submitting ||
+            !variantId ||
+            !startDate ||
+            quantity < 1 ||
+            (outOfStockToday && !canWaitlist)
           }
           className={`btn w-full rounded-lg disabled:opacity-60 ${
-            outOfStockToday ? "btn-ghost border border-base-300" : "btn-primary"
+            canWaitlist
+              ? "btn-secondary"
+              : outOfStockToday
+              ? "btn-ghost border border-base-300"
+              : "btn-primary"
           }`}
         >
-          {submitting
-            ? "Creating…"
-            : outOfStockToday
-            ? "Out of stock"
-            : "Subscribe"}
+          {submitting ? "Processing…" : buttonText}
         </button>
       </div>
 
