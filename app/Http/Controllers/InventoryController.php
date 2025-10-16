@@ -107,23 +107,30 @@ class InventoryController extends Controller
             })->values();
 
             // Orders (only for owners)
-            $orders = [];
-            if ($isOwner) {
-                $orders = DB::table('deliveries as d')
-                    ->join('subscriptions as s', 's.id', '=', 'd.subscription_id')
-                    ->join('product_variants as pv', 'pv.id', '=', 's.product_variant_id')
-                    ->join('products as p', 'p.id', '=', 's.product_id')
-                    ->select(
-                        'd.id as delivery_id','d.scheduled_date','d.status','d.qty',
-                        's.id as subscription_id','s.customer_id',
-                        'p.name as product_name','pv.name as variant_name','pv.id as product_variant_id'
-                    )
-                    ->where('s.vendor_id', $vendor->id)
-                    ->whereDate('d.scheduled_date', $date)
-                    ->when($locationId, fn($q) => $q->where('d.vendor_location_id', $locationId))
-                    ->orderBy('p.name')->orderBy('pv.sort_order')->get();
-            }
-
+            $orders = DB::table('deliveries as d')
+                ->join('subscriptions as s', 's.id', '=', 'd.subscription_id')
+                ->join('product_variants as pv', 'pv.id', '=', 's.product_variant_id')
+                ->join('products as p', 'p.id', '=', 's.product_id')
+                ->select(
+                    'd.id as delivery_id',
+                    'd.scheduled_date',
+                    'd.status',
+                    'd.qty',
+                    's.id as subscription_id',
+                    's.customer_id',
+                    'p.name as product_name',
+                    'pv.name as variant_name',
+                    'pv.id as product_variant_id'
+                )
+                ->where('s.vendor_id', $vendor->id)
+                ->whereDate('d.scheduled_date', $date)
+                ->when($locationId, fn ($q) => $q->where('d.vendor_location_id', $locationId))
+                // 👇 include the statuses you want to show in the UI list
+                ->whereIn('d.status', ['scheduled', 'ready', 'picked_up','skipped','missed','refunded'])
+                ->orderBy('p.name')
+                ->orderBy('pv.sort_order')
+                ->get();
+                
             return response()->json([
                 'date'        => $date,
                 'location_id' => $locationId,
@@ -255,4 +262,65 @@ class InventoryController extends Controller
         $entry->delete();
         return response()->json(['ok' => true]);
     }
+
+    /**
+     * Vendor-scoped delivery actions for inventory page.
+     * Maps UI actions to deliveries.status enum values:
+     *   - ready      -> ready
+     *   - fulfilled  -> picked_up
+     *   - cancel     -> refunded
+     */
+    public function readyDelivery(Vendor $vendor, int $id)
+    {
+        return $this->deliveryAction($vendor, $id, 'ready');
+    }
+
+    public function cancelDelivery(Vendor $vendor, int $id)
+    {
+        return $this->deliveryAction($vendor, $id, 'cancel');
+    }
+
+    public function fulfillDelivery(Vendor $vendor, int $id)
+    {
+        return $this->deliveryAction($vendor, $id, 'fulfilled');
+    }
+
+    protected function deliveryAction(Vendor $vendor, int $id, string $action)
+    {
+        // Ensure the delivery belongs to this vendor
+        $delivery = DB::table('deliveries as d')
+            ->join('subscriptions as s', 's.id', '=', 'd.subscription_id')
+            ->where('d.id', $id)
+            ->where('s.vendor_id', $vendor->id)
+            ->select('d.id', 'd.status')
+            ->first();
+
+        if (!$delivery) {
+            return response()->json(['message' => 'Delivery not found for this vendor'], 404);
+        }
+
+        // Map UI action -> allowed enum value
+        $newStatus = match ($action) {
+            'ready'     => 'ready',
+            'fulfilled' => 'picked_up',
+            'cancel'    => 'refunded',
+            default     => null,
+        };
+
+        if ($newStatus === null) {
+            return response()->json(['message' => 'Unsupported action'], 422);
+        }
+
+        // Update the row
+        DB::table('deliveries')
+            ->where('id', $id)
+            ->update([
+                'status'     => $newStatus,   // Query Builder quotes this safely
+                'updated_at' => now(),
+            ]);
+
+        return response()->json(['ok' => true, 'id' => $id, 'status' => $newStatus]);
+    }   
+
+
 }

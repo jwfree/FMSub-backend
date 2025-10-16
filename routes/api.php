@@ -123,6 +123,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/variants/{variant}', [\App\Http\Controllers\VariantController::class, 'destroy'])
         ->whereNumber('variant');
 
+        // Delivery actions used on the Inventory page
+        Route::patch('/vendors/{vendor}/inventory/deliveries/{id}/ready',    [InventoryController::class, 'readyDelivery'])
+            ->whereNumber(['vendor','id'])
+            ->middleware('can:update,vendor');
+
+        Route::patch('/vendors/{vendor}/inventory/deliveries/{id}/cancel',   [InventoryController::class, 'cancelDelivery'])
+            ->whereNumber(['vendor','id'])
+            ->middleware('can:update,vendor');
+
+        Route::patch('/vendors/{vendor}/inventory/deliveries/{id}/fulfill',  [InventoryController::class, 'fulfillDelivery'])
+            ->whereNumber(['vendor','id'])
+            ->middleware('can:update,vendor');
+
         // --- Inventory (vendor) ---
 
         Route::post  ('/vendors/{vendor}/inventory/entries',       [InventoryController::class, 'store'])
@@ -134,10 +147,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/vendors/{vendor}/inventory/entries/bulk', [\App\Http\Controllers\InventoryController::class, 'storeBulk']
             )->whereNumber('vendor')->middleware('can:update,vendor');
         });
-        // Mark a delivery fulfilled (removes it from "reserved" on this date)
-        Route::patch('/vendors/{vendor}/inventory/deliveries/{id}/fulfill', [InventoryController::class, 'fulfillDelivery'])
-            ->whereNumber(['vendor','id'])
-            ->middleware('can:update,vendor');
 
         Route::post('/waitlist', [WaitlistController::class, 'store']); // auth optional
         Route::middleware('auth:sanctum')->group(function () {

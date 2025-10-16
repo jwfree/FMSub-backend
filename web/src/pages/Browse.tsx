@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api, { getMyFavoriteVendors, favoriteVendor, unfavoriteVendor } from "../lib/api";
 import VendorCard, { type Vendor } from "../components/VendorCard";
 import ProductCard, { type Product as ProductCardType } from "../components/ProductCard";
@@ -48,7 +48,21 @@ function mapAvailabilityForServer(a: "in_or_waitlist" | "in" | "out_any"): "in_o
 
 export default function Browse() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const isAuthed = !!localStorage.getItem("token");
+
+  /* ───────────────── Restore last /browse URL (only if landing clean) ───────────────── */
+  useEffect(() => {
+    if (location.pathname === "/browse" && !location.search) {
+      const last = localStorage.getItem("__last_browse_url");
+      if (last && last.startsWith("/browse") && last !== "/browse") {
+        navigate(last, { replace: true });
+      }
+    }
+    // run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ----- initial state from URL -----
   const initialTab = ((): "vendors" | "products" => {
@@ -158,7 +172,56 @@ export default function Browse() {
   const nextUrl = `${window.location.pathname}${window.location.search}`;
   const userToken = localStorage.getItem("token");
 
-  // ----- keep key UI state in the URL -----
+  const DEFAULTS = {
+    tab: "vendors" as const,
+    mode: isAuthed ? ("favorites" as const) : ("nearby" as const),
+    radius: 10,
+    radiusKind: "preset" as const,
+    vendorView: "cards" as const,
+    productView: "cards" as const,
+    availability: "in_or_waitlist" as const,
+    orderBy: "name" as const,
+    vendorIdFilter: "all" as const,
+    qVendors: "",
+    qProducts: "",
+  };
+
+  function hasAnyFilters() {
+    return (
+      qVendors.trim() !== DEFAULTS.qVendors ||
+      qProducts.trim() !== DEFAULTS.qProducts ||
+      vendorIdFilter !== DEFAULTS.vendorIdFilter ||
+      availability !== DEFAULTS.availability ||
+      orderBy !== DEFAULTS.orderBy ||
+      vendorView !== DEFAULTS.vendorView ||
+      productView !== DEFAULTS.productView ||
+      // vendor-tab bits
+      mode !== DEFAULTS.mode ||
+      (mode === "nearby" && (radius !== DEFAULTS.radius || radiusKind !== DEFAULTS.radiusKind)) ||
+      tab !== DEFAULTS.tab
+    );
+  }
+
+  function clearFilters() {
+    // reset both tabs’ knobs to defaults
+    setTab(DEFAULTS.tab);
+    setMode(DEFAULTS.mode);
+    setRadius(DEFAULTS.radius);
+    setRadiusKind(DEFAULTS.radiusKind);
+    setVendorView(DEFAULTS.vendorView);
+
+    setProductView(DEFAULTS.productView);
+    setAvailability(DEFAULTS.availability);
+    setOrderBy(DEFAULTS.orderBy);
+    setVendorIdFilter(DEFAULTS.vendorIdFilter);
+
+    setQVendors(DEFAULTS.qVendors);
+    setQProducts(DEFAULTS.qProducts);
+
+    setPage(1);
+  }
+
+  // ----- keep key UI state in the URL + save last browse URL -----
   useEffect(() => {
     const sp = new URLSearchParams(searchParams);
 
@@ -212,6 +275,11 @@ export default function Browse() {
     }
 
     setSearchParams(sp, { replace: true });
+
+    // Save as a canonical /browse URL (never use window.location.pathname here)
+    const qs = sp.toString();
+    const lastUrl = qs ? `/browse?${qs}` : `/browse`;
+    localStorage.setItem("__last_browse_url", lastUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     tab,
@@ -279,11 +347,10 @@ export default function Browse() {
       params.favorites = 1; // server will respect only if authed
     }
 
-  Promise.all([
-    api.get<Page<VendorWithDistance>>("/vendors", { params }),
-    userToken ? getMyFavoriteVendors().catch(() => [] as number[]) : Promise.resolve([] as number[]),
-  ])
- 
+    Promise.all([
+      api.get<Page<VendorWithDistance>>("/vendors", { params }),
+      userToken ? getMyFavoriteVendors().catch(() => [] as number[]) : Promise.resolve([] as number[]),
+    ])
       .then(([vRes, favIds]) => {
         if (cancelled) return;
 
@@ -671,6 +738,19 @@ export default function Browse() {
             <option value="price">Price</option>
             <option value="distance">Distance</option>
           </select>
+
+          {hasAnyFilters() && (
+            <div className="mb-2 flex justify-end">
+              <button
+                className="text-xs underline text-base-content/70 hover:text-base-content"
+                onClick={clearFilters}
+                title="Reset all filters on this page"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+
         </div>
       )}
 

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\PersonalAccessToken;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use App\Models\InventoryEntry;
 
 class VendorController extends Controller
 {
@@ -141,31 +142,94 @@ class VendorController extends Controller
     /**
      * GET /api/vendors/{vendor}
      * Returns vendor plus can_edit flag. Products/locations are included unless with=none.
+     * Adds availability fields (any_available, available_qty) per product.
+     *
+     * Optional query params:
+     *   - include_inactive=1   (include inactive vendor OR products/variants)
+     *   - date=YYYY-MM-DD      (availability for this date; default today)
+     *   - location_id          (restrict availability to a vendor location)
+     *   - with=none            (skip loading products/locations)
      */
     public function show(Vendor $vendor, Request $request)
     {
-        if (!$vendor->active) {
+        $includeInactive = (bool) $request->boolean('include_inactive', false);
+
+        // Vendor must be active unless explicitly included
+        if (!$vendor->active && !$includeInactive) {
             return response()->json(['message' => 'Vendor not active'], 404);
         }
 
-        if ($request->get('with') !== 'none') {
-            $vendor->load([
-                'products' => function ($q) {
-                    $q->where('products.active', true)
-                      ->with(['variants' => function ($v) {
-                          $v->where('product_variants.active', true)
-                            ->select([
-                                'product_variants.id',
-                                'product_variants.product_id',
-                                'product_variants.name',
-                                'product_variants.sku',
-                                'product_variants.price_cents',
-                                'product_variants.active',
-                            ]);
-                      }]);
-                },
-                'locations',
-            ]);
+        $with = (string) $request->get('with', '');
+        if ($with !== 'none') {
+            // Availability context
+            $date       = (string) ($request->get('date') ?? now()->toDateString());
+            $locationId = $request->integer('location_id') ?: null;
+
+            // ---------- Build availability rollup (same logic as ProductsController) ----------
+            $entriesTable = (new InventoryEntry())->getTable();
+
+            // Ledger (manual adds/adjusts) up to $date, honoring shelf_life window
+            $ledgerSub = DB::table("$entriesTable as ie")
+                ->select('ie.product_variant_id', DB::raw('SUM(ie.qty) as manual_qty'))
+                ->where('ie.vendor_id', $vendor->id)
+                ->when($locationId, fn ($q) => $q->where('ie.vendor_location_id', $locationId))
+                ->whereDate('ie.for_date', '<=', $date)
+                ->where(function ($q) use ($date) {
+                    $q->whereNull('ie.shelf_life_days')
+                    ->orWhereRaw('DATE(ie.for_date) >= DATE_SUB(?, INTERVAL ie.shelf_life_days DAY)', [$date]);
+                })
+                ->groupBy('ie.product_variant_id');
+
+            // Reserved from deliveries on the same day (statuses that hold inventory)
+            $reservedSub = DB::table('deliveries as d')
+                ->join('subscriptions as s', 's.id', '=', 'd.subscription_id')
+                ->select('s.product_variant_id', DB::raw('SUM(d.qty) as reserved_qty'))
+                ->where('s.vendor_id', $vendor->id)
+                ->when($locationId, fn ($q) => $q->where('d.vendor_location_id', $locationId))
+                ->whereDate('d.scheduled_date', $date)
+                ->whereIn('d.status', ['scheduled', 'ready'])
+                ->groupBy('s.product_variant_id');
+
+            // Per-product rollup: any_available + sum of positive availability across variants
+            $productAvail = DB::table('products as p')
+                ->join('product_variants as pv', 'pv.product_id', '=', 'p.id')
+                ->leftJoinSub($ledgerSub,  'L', 'L.product_variant_id', '=', 'pv.id')
+                ->leftJoinSub($reservedSub,'R', 'R.product_variant_id', '=', 'pv.id')
+                ->select(
+                    'p.id as product_id',
+                    DB::raw("MAX(CASE WHEN (COALESCE(L.manual_qty,0) - COALESCE(R.reserved_qty,0)) > 0 THEN 1 ELSE 0 END) as any_available"),
+                    DB::raw("SUM(GREATEST(COALESCE(L.manual_qty,0) - COALESCE(R.reserved_qty,0), 0)) as available_qty_sum")
+                )
+                ->where('p.vendor_id', $vendor->id)
+                ->groupBy('p.id');
+
+            // Load products joined with availability
+            $products = $vendor->products()
+                ->when(!$includeInactive, fn ($q) => $q->where('products.active', true))
+                ->leftJoinSub($productAvail, 'PA', 'PA.product_id', '=', 'products.id')
+                ->select(
+                    'products.*',
+                    DB::raw('COALESCE(PA.any_available, 0) as any_available'),
+                    DB::raw('COALESCE(PA.available_qty_sum, 0) as available_qty')
+                )
+                ->with(['variants' => function ($v) use ($includeInactive) {
+                    if (!$includeInactive) {
+                        $v->where('product_variants.active', true);
+                    }
+                    $v->select([
+                        'product_variants.id',
+                        'product_variants.product_id',
+                        'product_variants.name',
+                        'product_variants.sku',
+                        'product_variants.price_cents',
+                        'product_variants.active',
+                    ])->orderBy('name');
+                }])
+                ->orderBy('products.name')
+                ->get();
+
+            $vendor->setRelation('products', $products);
+            $vendor->load(['locations']);
         }
 
         // Resolve user optionally from bearer token (route is public)
@@ -175,7 +239,6 @@ class VendorController extends Controller
                 $user = $pat->tokenable;
             }
         }
-
         $canEdit = $user ? $user->can('update', $vendor) : false;
 
         return response()->json(array_merge($vendor->toArray(), [

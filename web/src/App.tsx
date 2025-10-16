@@ -79,6 +79,10 @@ function Header({
   const location = useLocation();
   const [hasVendor, setHasVendor] = useState(false);
 
+  // NEW: remember the last Browse URL
+  const [browseHref, setBrowseHref] = useState("/browse");
+
+  // 🧩 Effect 1: check vendor access (your existing one, unchanged)
   useEffect(() => {
     async function check() {
       if (!me) {
@@ -98,9 +102,16 @@ function Header({
     check();
   }, [me]);
 
+  // 🧩 Effect 2: keep `browseHref` synced with localStorage
+  useEffect(() => {
+    const u = localStorage.getItem("__last_browse_url");
+    setBrowseHref(u || "/browse");
+  }, [location]);
+
   async function handleLogout() {
     await onLogout();
-    navigate("/browse", { replace: true });
+    const u = localStorage.getItem("__last_browse_url") || "/browse";
+    navigate(u, { replace: true });
   }
 
   const next = encodeURIComponent(location.pathname + location.search);
@@ -108,36 +119,31 @@ function Header({
   return (
     <header className="sticky top-0 z-10 bg-base-100 border-b border-base-300">
       <div className="mx-auto max-w-3xl px-4 py-3 flex items-center justify-between">
+        {/* use browseHref for logo */}
         <Link
-          to="/browse"
+          to={browseHref}
           className="font-semibold tracking-tight text-base-content hover:text-primary"
         >
           Farmers Market Reserve
         </Link>
 
         <nav className="flex items-center gap-4 text-sm">
-          <Link className="text-base-content hover:text-primary" to="/browse">
+          {/* use browseHref for Browse link */}
+          <Link className="text-base-content hover:text-primary" to={browseHref}>
             Browse
           </Link>
 
           {me && !hasVendor && (
-            <Link
-              className="text-base-content hover:text-primary"
-              to="/vendor/new"
-            >
+            <Link className="text-base-content hover:text-primary" to="/vendor/new">
               Become a vendor
             </Link>
           )}
 
-          {/* Theme switcher */}
           <ThemeSwitcher />
 
           {me ? (
             <div className="flex items-center gap-3">
-              <Link
-                className="text-base-content hover:text-primary"
-                to="/subscriptions"
-              >
+              <Link className="text-base-content hover:text-primary" to="/subscriptions">
                 My Orders
               </Link>
               <Link
@@ -146,10 +152,7 @@ function Header({
               >
                 Account
               </Link>
-              <button
-                onClick={handleLogout}
-                className="btn btn-xs sm:btn-sm btn-outline"
-              >
+              <button onClick={handleLogout} className="btn btn-xs sm:btn-sm btn-outline">
                 Logout
               </button>
             </div>

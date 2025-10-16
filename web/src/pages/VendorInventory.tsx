@@ -111,29 +111,13 @@ export default function VendorInventory() {
     await api.patch(`/vendors/${vendorId}/inventory/entries/${entryId}`, payload);
   }
 
-  async function deliveryAction(
-    vendorId: number,
-    deliveryId: number,
-    action: "ready" | "cancel" | "fulfilled"
+  // --- Delivery actions (new canonical endpoints) ---
+  async function markDelivery(
+    action: "ready" | "cancel" | "fulfill",
+    deliveryId: number
   ) {
-    const candidates = [
-      { method: "post", url: `/vendors/${vendorId}/deliveries/${deliveryId}/action`, body: { action } },
-      { method: "post", url: `/vendors/${vendorId}/deliveries/${deliveryId}/${action}`, body: {} },
-      { method: "post", url: `/vendors/${vendorId}/inventory/deliveries/${deliveryId}/${action}`, body: {} },
-    ] as const;
-
-    let lastErr: any = null;
-    for (const c of candidates) {
-      try {
-        if (c.method === "post") {
-          await api.post(c.url, c.body);
-        }
-        return;
-      } catch (e: any) {
-        lastErr = e;
-      }
-    }
-    throw lastErr;
+    // NOTE: verb is PATCH; and it's "fulfill" (not "fulfilled")
+    await api.patch(`/vendors/${vendorId}/inventory/deliveries/${deliveryId}/${action}`);
   }
 
   // --- Waitlist helpers (vendor-wide) ---
@@ -290,16 +274,39 @@ export default function VendorInventory() {
   }
 
   async function onMarkReady(deliveryId: number) {
-    await deliveryAction(vendorId, deliveryId, "ready");
-    await load();
+    try {
+      await markDelivery("ready", deliveryId);
+      setToast("Marked ready");
+      await load();
+    } catch (e: any) {
+      setToast(e?.response?.data?.message || "Failed to mark ready");
+    } finally {
+      setTimeout(() => setToast(null), 1500);
+    }
   }
+
   async function onCancel(deliveryId: number) {
-    await deliveryAction(vendorId, deliveryId, "cancel");
-    await load();
+    try {
+      await markDelivery("cancel", deliveryId);
+      setToast("Order canceled");
+      await load();
+    } catch (e: any) {
+      setToast(e?.response?.data?.message || "Failed to cancel order");
+    } finally {
+      setTimeout(() => setToast(null), 1500);
+    }
   }
+
   async function onFulfilled(deliveryId: number) {
-    await deliveryAction(vendorId, deliveryId, "fulfilled");
-    await load();
+    try {
+      await markDelivery("fulfill", deliveryId); // <-- "fulfill"
+      setToast("Marked fulfilled");
+      await load();
+    } catch (e: any) {
+      setToast(e?.response?.data?.message || "Failed to mark fulfilled");
+    } finally {
+      setTimeout(() => setToast(null), 1500);
+    }
   }
 
   // inline edit for entry qty + shelf life
@@ -341,6 +348,32 @@ export default function VendorInventory() {
     if (days === 0) return "Shelf life: same day only";
     if (days === 1) return "Shelf life: 1 day";
     return `Shelf life: ${days} days`;
+  }
+
+  function renderStatusPill(status: string) {
+    // Map delivery status -> UI colors (using your CSS variables)
+    const map: Record<
+      string,
+      { bg: string; fg: string }
+    > = {
+      scheduled: { bg: "var(--color-info)",     fg: "#fff" },
+      ready:     { bg: "var(--color-primary)",  fg: "var(--color-primary-content)" },
+      picked_up: { bg: "var(--color-success)",  fg: "#fff" },
+      skipped:   { bg: "var(--color-warning)",  fg: "#000" },
+      missed:    { bg: "var(--color-error)",    fg: "#fff" },
+      refunded:  { bg: "var(--color-secondary)",fg: "var(--color-secondary-content)" },
+    };
+
+    const c = map[status] ?? { bg: "var(--color-base-200)", fg: "var(--color-base-content)" };
+
+    return (
+      <span
+        className="inline-block rounded-full px-2 py-0.5 text-[11px] leading-4"
+        style={{ backgroundColor: c.bg, color: c.fg }}
+      >
+        {status.replace("_", " ")}
+      </span>
+    );
   }
 
   /* =========================
@@ -635,7 +668,10 @@ export default function VendorInventory() {
             <div className="space-y-3">
               {orders.map((o) => (
                 <div key={o.delivery_id} className="rounded-lg border border-base-300 p-3">
-                  <div className="font-medium">{o.product_name}</div>
+                  <div className="font-medium flex items-center justify-between gap-2">
+                    <span>{o.product_name}</span>
+                    {renderStatusPill(o.status)}
+                  </div>                  
                   <div className="text-xs text-base-content/70">
                     {o.variant_name} • {o.scheduled_date}
                   </div>

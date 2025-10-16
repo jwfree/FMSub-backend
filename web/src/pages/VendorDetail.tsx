@@ -127,21 +127,27 @@ export default function VendorDetail() {
         postal_code: postal || null,
         country: (country || "US").toUpperCase(),
       };
-      const patched = await api.patch(`/vendors/${vendor.id}`, patchBody);
 
-      let finalVendor = patched.data as Vendor;
+      // 1) Save vendor fields
+      await api.patch(`/vendors/${vendor.id}`, patchBody);
+
+      // 2) Optional images upload
       if (bannerFile || photoFile) {
         const form = new FormData();
         if (bannerFile) form.append("banner", bannerFile);
         if (photoFile) form.append("photo", photoFile);
-        const res = await api.post(`/vendors/${vendor.id}/assets`, form, {
+        await api.post(`/vendors/${vendor.id}/assets`, form, {
           headers: { "Content-Type": "multipart/form-data" },
         });
-        finalVendor = res.data;
       }
 
-      // keep is_favorite flag after save
-      setVendor({ ...finalVendor, is_favorite: vendor.is_favorite });
+      // 3) Rehydrate from server so computed flags (e.g. can_edit) are correct
+      const refreshed = await fetchVendor();
+
+      // preserve favorite state locally (the show endpoint doesn't include it)
+      setVendor({ ...refreshed, is_favorite: vendor.is_favorite });
+
+      // tidy up UI
       setOpenEdit(false);
       setBannerFile(null);
       setPhotoFile(null);

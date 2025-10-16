@@ -4,67 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Vendor;
-use App\Models\InventoryEntry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
+use App\Support\AvailabilityQueries;
 
 class ProductsController extends Controller
 {
-    /**
-     * Build a per-product availability rollup subquery.
-     * - Mirrors InventoryController@index rules for ledger window:
-     *     for_date <= :date AND (shelf_life_days IS NULL OR for_date >= DATE_SUB(:date, INTERVAL shelf_life_days DAY))
-     * - reserved: deliveries for :date with status in [scheduled, ready]
-     * - available per variant = manual - reserved
-     * - roll up to product:
-     *     any_available = MAX(available_qty > 0)
-     *     available_qty = SUM(GREATEST(available_qty, 0))
-     */
-    protected function buildProductAvailabilityRollup(array $vendorIds, string $date, ?int $locationId = null)
-    {
-        $entriesTable = (new InventoryEntry())->getTable();
-
-        // --- Ledger (manual) up to $date with shelf-life window
-        $ledgerSub = DB::table("$entriesTable as ie")
-            ->select('ie.product_variant_id', DB::raw('SUM(ie.qty) as manual_qty'))
-            ->when(!empty($vendorIds), fn ($q) => $q->whereIn('ie.vendor_id', $vendorIds))
-            ->when($locationId, fn ($q) => $q->where('ie.vendor_location_id', $locationId))
-            ->whereDate('ie.for_date', '<=', $date)
-            ->where(function ($q) use ($date) {
-                // Same window used in InventoryController
-                $q->whereNull('ie.shelf_life_days')
-                  ->orWhereRaw('DATE(ie.for_date) >= DATE_SUB(?, INTERVAL ie.shelf_life_days DAY)', [$date]);
-            })
-            ->groupBy('ie.product_variant_id');
-
-        // --- Reserved from deliveries (same day)
-        $reservedSub = DB::table('deliveries as d')
-            ->join('subscriptions as s', 's.id', '=', 'd.subscription_id')
-            ->select('s.product_variant_id', DB::raw('SUM(d.qty) as reserved_qty'))
-            ->when(!empty($vendorIds), fn ($q) => $q->whereIn('s.vendor_id', $vendorIds))
-            ->when($locationId, fn ($q) => $q->where('d.vendor_location_id', $locationId))
-            ->whereDate('d.scheduled_date', $date)
-            ->whereIn('d.status', ['scheduled', 'ready'])
-            ->groupBy('s.product_variant_id');
-
-        // --- Per-product rollup (join products -> variants, then left join ledger/reserved)
-        $productAvail = DB::table('products as p')
-            ->join('product_variants as pv', 'pv.product_id', '=', 'p.id')
-            ->leftJoinSub($ledgerSub,  'L', 'L.product_variant_id', '=', 'pv.id')
-            ->leftJoinSub($reservedSub,'R', 'R.product_variant_id', '=', 'pv.id')
-            ->select(
-                'p.id as product_id',
-                // any_available: 1 if any variant has > 0 available
-                DB::raw("MAX(CASE WHEN (COALESCE(L.manual_qty,0) - COALESCE(R.reserved_qty,0)) > 0 THEN 1 ELSE 0 END) as any_available"),
-                // available_qty: sum of positive availability across variants
-                DB::raw("SUM(GREATEST(COALESCE(L.manual_qty,0) - COALESCE(R.reserved_qty,0), 0)) as available_qty_sum")
-            )
-            ->when(!empty($vendorIds), fn ($q) => $q->whereIn('p.vendor_id', $vendorIds))
-            ->groupBy('p.id');
-
-        return $productAvail;
-    }
+    use AvailabilityQueries;
 
     /**
      * GET /api/products
@@ -129,7 +76,7 @@ class ProductsController extends Controller
             $availability = 'in_or_out_with_waitlist';
         }
 
-        // Build per-product availability rollup
+        // Build per-product availability rollup (from trait)
         $productAvail = $this->buildProductAvailabilityRollup($vendorIds, $date, $locationId);
 
         $query = Product::query()
@@ -163,16 +110,13 @@ class ProductsController extends Controller
             ->when($availability !== 'both', function ($qb) use ($availability) {
                 $qb->where(function ($w) use ($availability) {
                     if ($availability === 'in_only') {
-                        // in stock only
                         $w->where('PA.any_available', 1);
                     } elseif ($availability === 'out_any') {
-                        // any out-of-stock (NULL or 0)
                         $w->where(function ($q) {
                             $q->whereNull('PA.any_available')
                               ->orWhere('PA.any_available', 0);
                         });
                     } elseif ($availability === 'out_with_waitlist') {
-                        // out-of-stock AND allow_waitlist
                         $w->where(function ($q) {
                             $q->where(function ($x) {
                                 $x->whereNull('PA.any_available')
@@ -181,7 +125,6 @@ class ProductsController extends Controller
                             ->where('products.allow_waitlist', true);
                         });
                     } elseif ($availability === 'in_or_out_with_waitlist') {
-                        // in stock OR (out-of-stock AND allow_waitlist)
                         $w->where(function ($q) {
                             $q->where('PA.any_available', 1)
                               ->orWhere(function ($x) {
@@ -195,7 +138,7 @@ class ProductsController extends Controller
                     }
                 });
             })
-            // eager loads (accessors will still provide URLs if defined on model)
+            // eager loads
             ->with([
                 'vendor:id,name',
                 'variants' => function ($v) {
