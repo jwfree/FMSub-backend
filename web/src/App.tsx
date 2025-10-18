@@ -90,7 +90,7 @@ function Header({
         return;
       }
       try {
-        const r = await api.get("/my/vendors", { params: { per_page: 1 } });
+        const r = await api.get("/my/vendors", { params: { per_page: 1, with: "none" } });
         const count = Array.isArray(r.data)
           ? r.data.length
           : r.data?.data?.length ?? 0;

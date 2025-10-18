@@ -225,75 +225,54 @@ export default function Browse() {
   useEffect(() => {
     const sp = new URLSearchParams(searchParams);
 
+    // Always keep the active tab
     sp.set("tab", tab);
 
-    // persist both searches independently
+    // Persist searches independently
     if (qVendors.trim()) sp.set("qv", qVendors.trim());
     else sp.delete("qv");
+
     if (qProducts.trim()) sp.set("qp", qProducts.trim());
     else sp.delete("qp");
 
-    // for backward compatibility: keep `q` as vendors filter if on vendors tab
-    if (tab === "vendors") {
-      if (qVendors.trim()) sp.set("q", qVendors.trim());
-      else sp.delete("q");
-    } else {
-      // avoid confusion on products tab
-      sp.delete("q");
-    }
+    // Back-compat: keep `q` mirroring vendor search (only if vendor search is present)
+    if (qVendors.trim()) sp.set("q", qVendors.trim());
+    else sp.delete("q");
 
+    // Page
     if (page > 1) sp.set("page", String(page));
     else sp.delete("page");
 
-    if (tab === "vendors") {
-      sp.set("mode", mode);
-      if (mode === "nearby") {
-        sp.set("radius", String(radius));
-        sp.set("radiusKind", radiusKind);
-      } else {
-        sp.delete("radius");
-        sp.delete("radiusKind");
-      }
-      sp.set("vendorView", vendorView);
-      // products-only keys
-      sp.delete("vendor");
-      sp.delete("availability");
-      sp.delete("orderBy");
-      sp.delete("productView");
+    // ✅ Keep VENDOR-side params regardless of tab
+    sp.set("mode", mode);
+    if (mode === "nearby") {
+      sp.set("radius", String(radius));
+      sp.set("radiusKind", radiusKind);
     } else {
-      // products tab: persist vendor selection + product prefs
-      if (vendorIdFilter === "all") sp.delete("vendor");
-      else sp.set("vendor", String(vendorIdFilter));
-      sp.set("availability", availability);
-      sp.set("orderBy", orderBy);
-      sp.set("productView", productView);
-      // vendor-only keys
-      sp.delete("mode");
       sp.delete("radius");
       sp.delete("radiusKind");
-      sp.delete("vendorView");
     }
+    sp.set("vendorView", vendorView);
 
+    // ✅ Keep PRODUCT-side params regardless of tab
+    if (vendorIdFilter === "all") sp.delete("vendor");
+    else sp.set("vendor", String(vendorIdFilter));
+    sp.set("availability", availability);
+    sp.set("orderBy", orderBy);
+    sp.set("productView", productView);
+
+    // Push to URL (don’t navigate away) and remember last browse URL
     setSearchParams(sp, { replace: true });
-
-    // Save as a canonical /browse URL (never use window.location.pathname here)
     const qs = sp.toString();
     const lastUrl = qs ? `/browse?${qs}` : `/browse`;
     localStorage.setItem("__last_browse_url", lastUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     tab,
-    mode,
-    radius,
-    radiusKind,
-    vendorView,
-    qVendors,
-    qProducts,
-    page,
-    vendorIdFilter,
-    availability,
-    orderBy,
-    productView,
+    // vendor side
+    mode, radius, radiusKind, vendorView, qVendors,
+    // product side
+    qProducts, page, vendorIdFilter, availability, orderBy, productView,
   ]);
 
   // ask for location if in nearby mode
@@ -336,7 +315,7 @@ export default function Browse() {
       };
     }
 
-    const params: Record<string, any> = { per_page: perPage, page };
+    const params: Record<string, any> = { per_page: perPage, page, with: "none" };
     if (qVendors.trim()) params.q = qVendors.trim();
     if (mode === "nearby" && coords) {
       params.lat = coords.lat;
@@ -347,32 +326,40 @@ export default function Browse() {
       params.favorites = 1; // server will respect only if authed
     }
 
-    Promise.all([
-      api.get<Page<VendorWithDistance>>("/vendors", { params }),
-      userToken ? getMyFavoriteVendors().catch(() => [] as number[]) : Promise.resolve([] as number[]),
-    ])
+    // --- streamlined fetch ---
+    const vendorPromise = api.get<Page<VendorWithDistance>>("/vendors", { params });
+
+    // only fetch favorites list if we’re NOT already filtering favorites
+    const favoritesPromise =
+      mode === "favorites" || !userToken
+        ? Promise.resolve([] as number[])
+        : getMyFavoriteVendors().catch(() => [] as number[]);
+
+    Promise.all([vendorPromise, favoritesPromise])
+
       .then(([vRes, favIds]) => {
         if (cancelled) return;
 
-        const mappedIds = (favIds as any[]).map((v) =>
-          typeof v === "number" ? v : v?.id
-        );
-        const favSet = new Set<number>(mappedIds.filter(Boolean) as number[]);
-        setFavoriteIds(favSet);
-
         const base = vRes.data?.data ?? [];
 
-        // Did the server actually respect favorites?
-        const serverRespectedFavorites =
-          mode === "favorites" &&
-          base.length > 0 &&
-          base.every((v) => favSet.has(v.id));
+        // Build the set used to paint hearts:
+        // - In Favorites mode, the server has already filtered down to your favorites,
+        //   so use the returned rows themselves as the favored set.
+        // - Otherwise, use the separate favorites list we fetched (for painting hearts in "All"/"Nearby").
+        let favSet: Set<number>;
+        if (mode === "favorites") {
+          favSet = new Set(base.map((v) => v.id));
+        } else {
+          const mappedIds = (favIds as any[]).map((v) =>
+            typeof v === "number" ? v : v?.id
+          );
+          favSet = new Set<number>(mappedIds.filter(Boolean) as number[]);
+        }
+        setFavoriteIds(favSet);
 
-        // Final list we’ll show
-        const list =
-          mode === "favorites" && !serverRespectedFavorites
-            ? base.filter((v) => favSet.has(v.id)) // client-side fallback
-            : base;
+        // In Favorites mode, trust the server result outright.
+        // (No client-side filtering needed; list is exactly what we want.)
+        const list = base;
 
         // Auto-switch note logic (unchanged)
         if (
@@ -390,18 +377,15 @@ export default function Browse() {
           setAutoSwitchNote(null);
         }
 
-        // Pagination: if we filtered locally, rebuild pages client-side
-        const didClientFilter = mode === "favorites" && !serverRespectedFavorites;
-
-        const total = didClientFilter ? list.length : (vRes.data?.total ?? list.length);
-        const last = Math.max(1, Math.ceil(total / perPage));
-        const start = (page - 1) * perPage;
-        const data = didClientFilter ? list.slice(start, start + perPage) : list;
+        // Pagination and totals come from server (or fall back safely)
+        const total = vRes.data?.total ?? list.length;
+        const last  = vRes.data?.last_page ?? Math.max(1, Math.ceil(total / perPage));
+        const curr  = vRes.data?.current_page ?? page;
 
         setVendors({
-          data,
-          current_page: didClientFilter ? page : (vRes.data?.current_page ?? page),
-          last_page: didClientFilter ? last : (vRes.data?.last_page ?? last),
+          data: list,
+          current_page: curr,
+          last_page: last,
           total,
         });
       })

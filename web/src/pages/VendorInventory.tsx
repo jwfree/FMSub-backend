@@ -7,6 +7,7 @@ import api, {
   addInventoryEntry,
   addInventoryEntriesBulk,
 } from "../lib/api";
+import { formatPhone } from "../lib/format";
 
 /* =========================
    Types
@@ -37,13 +38,24 @@ type VariantRow = {
 type DeliveryRow = {
   delivery_id: number;
   scheduled_date: string;
-  status: string;
+  status:
+    | "scheduled"
+    | "ready"
+    | "picked_up"
+    | "skipped"
+    | "missed"
+    | "refunded";
   qty: number;
   subscription_id: number | null;
   customer_id: number | null;
   product_name: string;
   variant_name: string;
   product_variant_id: number;
+
+  // Optional customer fields returned by the backend join
+  customer_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
 };
 
 type WaitlistRow = {
@@ -56,7 +68,12 @@ type WaitlistRow = {
   created_at: string;
   product?: { id: number; name: string };
   variant?: { id: number; name: string };
-  customer?: { id: number; name?: string | null; email?: string | null };
+  customer?: {
+    id: number;
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null; // ← included
+  };
 };
 
 type IntervalKind = "daily" | "every_n_days" | "weekly" | "monthly";
@@ -76,7 +93,10 @@ export default function VendorInventory() {
   // --- add / adjust (single-day) ---
   const [variantId, setVariantId] = useState<number | null>(null);
   const [productId, setProductId] = useState<number | null>(null);
-  const [qty, setQty] = useState<number>(1);
+
+  // IMPORTANT: keep user input as string so "-", "" etc. don't snap to 0
+  const [qtyText, setQtyText] = useState<string>("1");
+
   const [note, setNote] = useState<string>("");
   const [shelfLifeSingle, setShelfLifeSingle] = useState<string>(""); // "" => null
 
@@ -101,6 +121,14 @@ export default function VendorInventory() {
 
   // --- light feedback ---
   const [toast, setToast] = useState<string | null>(null);
+
+  const normalizeTel = (s: string) => s.replace(/[^\d+0-9]/g, "");
+
+  // helpers
+  function toIntOrZero(s: string): number {
+    const n = parseInt(s, 10);
+    return Number.isFinite(n) ? n : 0;
+  }
 
   // ---------------- API fallbacks ----------------
   async function patchInventoryEntry(
@@ -194,9 +222,10 @@ export default function VendorInventory() {
   // keep UI preview list in sync when open
   useEffect(() => {
     if (!previewOpen) return;
-    const lines = computedPreviewDates.map((d) => `${d} — qty ${qty || 0}`);
+    const qtyNum = toIntOrZero(qtyText);
+    const lines = computedPreviewDates.map((d) => `${d} — qty ${qtyNum || 0}`);
     setPreviewLines(lines);
-  }, [previewOpen, computedPreviewDates, qty]);
+  }, [previewOpen, computedPreviewDates, qtyText]);
 
   // --- handlers ---
   function onSelectVariant(id: number) {
@@ -213,13 +242,15 @@ export default function VendorInventory() {
         ? null
         : Math.max(0, Math.floor(Number(shelfLifeSingle)));
 
+    const qtyNum = toIntOrZero(qtyText);
+
     await addInventoryEntry(vendorId, {
       vendor_location_id: locationId === "all" ? undefined : Number(locationId),
       product_id: productId,
       product_variant_id: variantId,
       for_date: date,
-      qty,
-      entry_type: qty >= 0 ? "add" : "adjust",
+      qty: qtyNum,
+      entry_type: qtyNum >= 0 ? "add" : "adjust",
       note: note || undefined,
       shelf_life_days: normalizedLife, // NEW
     });
@@ -238,14 +269,16 @@ export default function VendorInventory() {
         ? null
         : Math.max(0, Math.floor(Number(shelfLifeBulk)));
 
+    const qtyNum = toIntOrZero(qtyText);
+
     const payload: any = {
       vendor_location_id: locationId === "all" ? undefined : Number(locationId),
       product_id: productId,
       product_variant_id: variantId,
       start_date: startDate,
       end_date: endDate,
-      qty,
-      entry_type: qty >= 0 ? "add" : "adjust",
+      qty: qtyNum,
+      entry_type: qtyNum >= 0 ? "add" : "adjust",
       note: note || undefined,
       pattern: { kind: intervalKind, n: intervalKind === "every_n_days" ? nDays : undefined },
       dry_run: dryRun,
@@ -257,7 +290,8 @@ export default function VendorInventory() {
       try {
         const r = await addInventoryEntriesBulk(vendorId, payload);
         const data = r?.data || r;
-        const lines = (data?.dates as string[] | undefined)?.map((d) => `${d} — qty ${qty}`) ?? [];
+        const lines =
+          (data?.dates as string[] | undefined)?.map((d) => `${d} — qty ${qtyNum}`) ?? [];
         setPreviewLines(lines);
         setPreviewOpen(true);
       } finally {
@@ -311,12 +345,15 @@ export default function VendorInventory() {
 
   // inline edit for entry qty + shelf life
   const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
-  const [editingQty, setEditingQty] = useState<number>(0);
+
+  // Keep editing qty as string as well
+  const [editingQty, setEditingQty] = useState<string>("0");
+
   const [editingShelfLife, setEditingShelfLife] = useState<string>(""); // empty => null
 
   function startEdit(entry: InventoryEntryRow) {
     setEditingEntryId(entry.id);
-    setEditingQty(entry.qty);
+    setEditingQty(String(entry.qty));
     setEditingShelfLife(
       entry.shelf_life_days === null || entry.shelf_life_days === undefined
         ? ""
@@ -324,7 +361,7 @@ export default function VendorInventory() {
     );
   }
   async function saveEdit(entry: InventoryEntryRow) {
-    const payload: any = { qty: editingQty };
+    const payload: any = { qty: toIntOrZero(editingQty) };
     if (editingShelfLife === "") {
       payload.shelf_life_days = null;
     } else {
@@ -427,11 +464,17 @@ export default function VendorInventory() {
             ))}
           </select>
 
+          {/* Qty: allow "-", "" while typing */}
           <input
-            type="number"
+            type="text"
+            inputMode="numeric"
+            pattern="-?[0-9]*"
             className="rounded-xl border border-base-300 bg-base-100 p-2 text-sm"
-            value={qty}
-            onChange={(e) => setQty(Number(e.target.value))}
+            value={qtyText}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (/^-?\d*$/.test(v)) setQtyText(v);
+            }}
           />
 
           <input
@@ -522,8 +565,9 @@ export default function VendorInventory() {
             <button
               className="btn"
               onClick={() => {
+                const qtyNum = toIntOrZero(qtyText);
                 if (!previewOpen) {
-                  const lines = computedPreviewDates.map((d) => `${d} — qty ${qty || 0}`);
+                  const lines = computedPreviewDates.map((d) => `${d} — qty ${qtyNum || 0}`);
                   setPreviewLines(lines);
                 }
                 setPreviewOpen((v) => !v);
@@ -606,11 +650,16 @@ export default function VendorInventory() {
 
                     {editingEntryId === e.id ? (
                       <div className="flex items-center gap-2">
-                        {/* Qty */}
+                        {/* Qty (string while editing) */}
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="-?[0-9]*"
                           value={editingQty}
-                          onChange={(ev) => setEditingQty(Number(ev.target.value))}
+                          onChange={(ev) => {
+                            const v = ev.target.value;
+                            if (/^-?\d*$/.test(v)) setEditingQty(v);
+                          }}
                           className="w-24 rounded-lg border border-base-300 bg-base-100 p-1 text-sm"
                           aria-label="Quantity"
                         />
@@ -671,9 +720,39 @@ export default function VendorInventory() {
                   <div className="font-medium flex items-center justify-between gap-2">
                     <span>{o.product_name}</span>
                     {renderStatusPill(o.status)}
-                  </div>                  
+                  </div>
                   <div className="text-xs text-base-content/70">
                     {o.variant_name} • {o.scheduled_date}
+                  </div>
+                  <div className="mt-1 text-s text-base-content/70">
+                    {o.customer_name ? <span>{o.customer_name}</span> : null}
+
+                    {o.customer_email ? (
+                      <>
+                        <br />
+                        <a className="link link-primary" href={`mailto:${o.customer_email}`}>
+                          {o.customer_email}
+                        </a>
+                      </>
+                    ) : null}
+
+                    {/* phone (tel:) */}
+                    {o.customer_phone ? (
+                      <>
+                        <br />
+                        <a className="link link-primary" href={`tel:${o.customer_phone}`}>
+                          {formatPhone(o.customer_phone)}
+                        </a>
+                      </>
+                    ) : null}
+                    {o.customer_phone ? (
+                      <>
+                        {" • "}
+                        <a className="link link-primary" href={`sms:${o.customer_phone}`}>
+                          {"Text"}
+                        </a>
+                      </>
+                    ) : null}
                   </div>
                   <div className="mt-1 text-sm">Qty: {o.qty}</div>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -706,11 +785,44 @@ export default function VendorInventory() {
                   <div className="font-medium">
                     {w.product?.name || "Product"} — {w.variant?.name || "Variant"}
                   </div>
+
                   <div className="text-xs text-base-content/70">
                     Added {dayjs(w.created_at).format("YYYY-MM-DD HH:mm")}
-                    {w.customer?.name ? ` • ${w.customer.name}` : ""}
-                    {w.customer?.email ? ` • ${w.customer.email}` : ""}
+                    {w.customer?.name ? (
+                      <>
+                        {" • "}
+                        {w.customer?.email ? (
+                          <a className="link link-primary" href={`mailto:${w.customer.email}`}>
+                            {w.customer.name}
+                          </a>
+                        ) : (
+                          <span>{w.customer.name}</span>
+                        )}
+                      </>
+                    ) : null}
+
+                    {w.customer?.email ? (
+                      <>
+                        {" • "}
+                        <a className="link link-primary" href={`mailto:${w.customer.email}`}>
+                          {w.customer.email}
+                        </a>
+                      </>
+                    ) : null}
+
+                    {w.customer?.phone ? (
+                      <>
+                        {" • "}
+                        <a
+                          className="link link-primary"
+                          href={`tel:${normalizeTel(w.customer.phone)}`}
+                        >
+                          {w.customer.phone}
+                        </a>
+                      </>
+                    ) : null}
                   </div>
+
                   <div className="mt-1 text-sm">Qty: {w.qty}</div>
                   {w.note && (
                     <div className="mt-1 text-xs text-base-content/70">Note: {w.note}</div>

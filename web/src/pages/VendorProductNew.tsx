@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
 import { ensureJpeg } from "../lib/convertHeic";
+import FilePicker from "../components/FilePicker";
+
 
 type VendorSummary = { id: number; name: string };
 
@@ -22,7 +24,6 @@ export default function VendorProductNew() {
   const [active, setActive] = useState(true);
 
   // first (required) variant
-  const [sku, setSku] = useState("");
   const [variantName, setVariantName] = useState("");
   const [price, setPrice] = useState<string>(""); // dollars text input
   const [currency, setCurrency] = useState("USD");
@@ -33,6 +34,7 @@ export default function VendorProductNew() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageWarn, setImageWarn] = useState<string | null>(null);
   const objectUrls = useRef<string[]>([]);
+
 
   // load vendor
   useEffect(() => {
@@ -60,22 +62,22 @@ export default function VendorProductNew() {
   }, []);
 
   // image pick/convert (HEIC → JPEG)
-  async function onPickImage(f?: File | null) {
-    setImageWarn(null);
-    setImagePreview(null);
-    setImageFile(null);
-    if (!f) return;
-    const { file, previewUrl, warning } = await ensureJpeg(f, {
-      quality: 0.9,
-      maxWidth: 3000,
-      maxHeight: 3000,
-      maxSizeMB: 8,
-    });
-    objectUrls.current.push(previewUrl);
-    setImageFile(file);
-    setImagePreview(previewUrl);
-    setImageWarn(warning || null);
-  }
+async function onPickImage(f?: File | null) {
+  setImageWarn(null);
+  setImagePreview(null);
+  setImageFile(null);
+  if (!f) return;
+  const { file, previewUrl, warning } = await ensureJpeg(f, {
+    quality: 0.9,
+    maxWidth: 3000,
+    maxHeight: 3000,
+    maxSizeMB: 8,
+  });
+  objectUrls.current.push(previewUrl);
+  setImageFile(file);
+  setImagePreview(previewUrl);
+  setImageWarn(warning || null);
+}
 
   function toCents(text: string): number | null {
     const normalized = text.replace(/[^\d.]/g, "");
@@ -113,7 +115,6 @@ export default function VendorProductNew() {
       fd.append("active", active ? "1" : "0");
 
       // first variant — **cents only**
-      fd.append("variant[sku]", sku);
       fd.append("variant[name]", variantName || unit);
       fd.append("variant[price_cents]", String(cents));
       fd.append("variant[currency]", (currency || "USD").toUpperCase());
@@ -202,15 +203,7 @@ export default function VendorProductNew() {
         {/* First variant */}
         <div className="font-medium text-sm">First variant</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div>
-            <label className="block text-xs text-base-content/80 mb-1">SKU</label>
-            <input
-              className="w-full rounded border p-2 text-sm"
-              value={sku}
-              onChange={(e) => setSku(e.target.value)}
-            />
-          </div>
-          <div>
+           <div>
             <label className="block text-xs text-base-content/80 mb-1">Variant name</label>
             <input
               className="w-full rounded border p-2 text-sm"
@@ -257,22 +250,14 @@ export default function VendorProductNew() {
 
         {/* Image */}
         <div>
-          <label className="block text-xs text-base-content/80 mb-1">Product image</label>
-          <input
-            type="file"
+          <FilePicker
             accept="image/*,.heic,.heif"
-            onChange={(e) => onPickImage(e.target.files?.[0] ?? null)}
+            onPick={onPickImage}
+            previewUrl={imagePreview}
+            fileName={imageFile?.name ?? null}   // optional, but nice to show
+            warn={imageWarn}
           />
-          {imagePreview && (
-            <img
-              src={imagePreview}
-              alt="Preview"
-              className="mt-2 h-24 w-24 rounded object-cover border"
-            />
-          )}
-          {imageWarn && <div className="text-error text-xs mt-1">{imageWarn}</div>}
         </div>
-
         <div className="flex gap-2">
           <button
             onClick={submit}

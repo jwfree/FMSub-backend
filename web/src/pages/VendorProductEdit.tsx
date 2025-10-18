@@ -1,8 +1,10 @@
 // web/src/pages/VendorProductEdit.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
 import { ensureJpeg } from "../lib/convertHeic";
+import FilePicker from "../components/FilePicker";
+
 
 type Variant = {
   id: number;
@@ -124,11 +126,6 @@ export default function VendorProductEdit() {
       objectUrls.current = [];
     };
   }, []);
-
-  const currentImage = useMemo(
-    () => imagePreview || product?.image_url || null,
-    [imagePreview, product?.image_url]
-  );
 
   // image pick/convert (HEIC → JPEG)
   async function onPickImage(f?: File | null) {
@@ -449,19 +446,15 @@ export default function VendorProductEdit() {
 
         {/* Image replace */}
         <div>
-          <label className="block text-xs text-base-content/80 mb-1">Replace image</label>
-          <input
-            type="file"
+          <FilePicker
+            label="Replace image"
             accept="image/*,.heic,.heif"
-            onChange={(e) => onPickImage(e.target.files?.[0] ?? null)}
+            onPick={onPickImage}
+            // show the new preview if picked, otherwise the existing product image
+            previewUrl={imagePreview ?? product?.image_url ?? null}
+            // show the chosen file name (only after picking a new one)
+            fileName={newImageFile?.name ?? null}
           />
-          {currentImage && (
-            <img
-              src={currentImage}
-              alt="Preview"
-              className="mt-2 h-24 w-24 rounded object-cover border"
-            />
-          )}
           {imageWarn && <div className="text-red-600 text-xs mt-1">{imageWarn}</div>}
         </div>
 

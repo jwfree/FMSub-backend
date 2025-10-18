@@ -30,20 +30,32 @@ class VendorController extends Controller
 
         $query = Vendor::query()->where('vendors.active', true);
 
-        // Search by name
+        // 🔍 Search by name
         if ($q !== '') {
             $query->where('vendors.name', 'like', "%{$q}%");
         }
 
-        // Favorites (requires auth) – if not logged in, we simply don't filter
+        // ❤️ Favorites filtering (works on public route too)
         if ($request->boolean('favorites')) {
-            if ($user = $request->user()) {
-                $favIds = $user->favoriteVendors()->pluck('vendors.id');
-                $query->whereIn('vendors.id', $favIds);
-            }
-        }
+            // Try normal auth first
+            $user = $request->user();
 
-        // Nearby filtering
+            // Fallback: resolve from bearer token (route is public)
+            if (!$user && ($token = $request->bearerToken())) {
+                if ($pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token)) {
+                    $user = $pat->tokenable; // your User model
+                }
+            }
+
+            if ($user) {
+                // Use your scope (clean & indexed)
+                $query->favoritesFor($user->id);
+                // or: $query->whereHas('favoritedBy', fn ($q) => $q->where('user_id', $user->id));
+            } else {
+                // No user => empty favorites. Keep normal pagination shape.
+                $query->whereRaw('1=0');
+            }
+        }        // 📍 Nearby filtering
         $lat = $request->get('lat');
         $lng = $request->get('lng');
         $rad = (float) $request->get('radius_miles', 10);
@@ -53,24 +65,21 @@ class VendorController extends Controller
             $lat = (float) $lat;
             $lng = (float) $lng;
 
-            $hasLocations         = Schema::hasTable('locations')
-                                     && Schema::hasColumn('locations', 'latitude')
-                                     && Schema::hasColumn('locations', 'longitude');
-            $hasVendorLocations   = Schema::hasTable('vendor_locations')
-                                     && Schema::hasColumn('vendor_locations', 'vendor_id')
-                                     && Schema::hasColumn('vendor_locations', 'location_id');
+            $hasLocations       = Schema::hasTable('locations')
+                                    && Schema::hasColumn('locations', 'latitude')
+                                    && Schema::hasColumn('locations', 'longitude');
+            $hasVendorLocations = Schema::hasTable('vendor_locations')
+                                    && Schema::hasColumn('vendor_locations', 'vendor_id')
+                                    && Schema::hasColumn('vendor_locations', 'location_id');
+            $hasVendorLatLng    = Schema::hasColumn('vendors', 'latitude')
+                                    && Schema::hasColumn('vendors', 'longitude');
 
-            $hasVendorLatLng      = Schema::hasColumn('vendors', 'latitude')
-                                     && Schema::hasColumn('vendors', 'longitude');
-
-            // Haversine (miles) expression factory
+            // Haversine formula (in miles)
             $distExpr = function (string $latCol, string $lngCol): string {
-                // Bindings order: [$lat, $lng, $lat]
                 return '(3959 * acos( cos(radians(?)) * cos(radians(' . $latCol . ')) * cos(radians(' . $lngCol . ') - radians(?)) + sin(radians(?)) * sin(radians(' . $latCol . ')) ))';
             };
 
             if ($hasLocations && $hasVendorLocations) {
-                // Join via pivot to locations; aggregate MIN(distance) per vendor (ONLY_FULL_GROUP_BY safe)
                 $query
                     ->join('vendor_locations', 'vendor_locations.vendor_id', '=', 'vendors.id')
                     ->join('locations', 'locations.id', '=', 'vendor_locations.location_id')
@@ -88,7 +97,6 @@ class VendorController extends Controller
                 $usingNearby = true;
 
             } elseif ($hasVendorLatLng) {
-                // Distance directly from vendors table (no join, one row per vendor)
                 $query
                     ->whereNotNull('vendors.latitude')
                     ->whereNotNull('vendors.longitude')
@@ -102,40 +110,34 @@ class VendorController extends Controller
 
                 $usingNearby = true;
             }
-            // else: no geodata; leave as name-ordered below
         }
 
-        // Eager load relations unless with=none
-        if ($request->get('with') === 'none') {
-            if (!$usingNearby) {
-                $query->orderBy('vendors.name');
-            }
-            $vendors = $query->paginate($perPage);
-        } else {
-            if (!$usingNearby) {
-                $query->orderBy('vendors.name');
-            }
-            $vendors = $query
-                ->with([
-                    'products' => function ($q) {
-                        $q->where('products.active', true)
-                          ->with(['variants' => function ($v) {
-                              $v->where('product_variants.active', true)
-                                ->select([
-                                    'product_variants.id',
-                                    'product_variants.product_id',
-                                    'product_variants.name',
-                                    'product_variants.sku',
-                                    'product_variants.price_cents',
-                                    'product_variants.active',
-                                ]);
-                          }]);
-                    },
-                    'locations',
-                ])
-                ->paginate($perPage);
+        // 📦 Eager load relations unless with=none
+        if ($request->get('with') !== 'none') {
+            $query->with([
+                'products' => function ($q) {
+                    $q->where('products.active', true)
+                    ->with(['variants' => function ($v) {
+                        $v->where('product_variants.active', true)
+                            ->select([
+                                'product_variants.id',
+                                'product_variants.product_id',
+                                'product_variants.name',
+                                'product_variants.sku',
+                                'product_variants.price_cents',
+                                'product_variants.active',
+                            ]);
+                    }]);
+                },
+                'locations',
+            ]);
         }
 
+        if (!$usingNearby) {
+            $query->orderBy('vendors.name');
+        }
+
+        $vendors = $query->paginate($perPage);
         return response()->json($vendors);
     }
 

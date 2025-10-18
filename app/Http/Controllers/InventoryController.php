@@ -13,132 +13,152 @@ class InventoryController extends Controller
 {
     public function index(Request $req, Vendor $vendor)
     {
-            // Dual-mode: vendors/staff get full detail, shoppers get public snapshot
-            $isOwner = auth()->check() && auth()->user()->can('view', $vendor);
-            if ($isOwner) {
-                // enforce policy for staff so they still need permission
-                $this->authorize('view', $vendor);
-            }
+        // Dual-mode: vendors/staff get full detail, shoppers get public snapshot
+        $isOwner = auth()->check() && auth()->user()->can('view', $vendor);
+        if ($isOwner) {
+            // enforce policy for staff so they still need permission
+            $this->authorize('view', $vendor);
+        }
 
-            // Ensure deliveries exist for the date (harmless for public; prepares reserved counts)
-            app(\App\Services\DeliveryScheduler::class)
-                ->ensureForDate(
-                    $vendor,
-                    Carbon::parse($req->date ?? now()->toDateString())
-                );
+        // Ensure deliveries exist for the date (harmless for public; prepares reserved counts)
+        app(\App\Services\DeliveryScheduler::class)
+            ->ensureForDate(
+                $vendor,
+                \Illuminate\Support\Carbon::parse($req->date ?? now()->toDateString())
+            );
 
-            $date = $req->date ?? now()->toDateString();
-            $locationId = $req->integer('location_id') ?: null;
+        $date       = $req->date ?? now()->toDateString();
+        $locationId = $req->integer('location_id') ?: null;
 
-            // -------- 1) Manual adds/adjustments (ledger) honoring shelf life window ----------
-            $ledger = InventoryEntry::query()
-                ->where('vendor_id', $vendor->id)
-                ->when($locationId, fn($q) => $q->where('vendor_location_id', $locationId))
-                ->whereDate('for_date', '<=', $date)
-                ->where(function ($q) use ($date) {
-                    $q->whereNull('shelf_life_days')
-                    ->orWhereRaw('DATE(for_date) >= DATE_SUB(?, INTERVAL shelf_life_days DAY)', [$date]);
-                })
-                ->orderBy('created_at')
-                ->get();
+        // -------- Ledger (detail) honoring shelf-life window ----------
+        $ledgerRows = \App\Models\InventoryEntry::query()
+            ->where('vendor_id', $vendor->id)
+            ->when($locationId, fn ($q) => $q->where('vendor_location_id', $locationId))
+            ->whereDate('for_date', '<=', $date)
+            ->where(function ($q) use ($date) {
+                $q->whereNull('shelf_life_days')
+                ->orWhereRaw('DATE(for_date) >= DATE_SUB(?, INTERVAL shelf_life_days DAY)', [$date]);
+            })
+            ->orderBy('created_at')
+            ->get();
 
-            // 2) Summarize ledger per variant
-            $manualByVariant = $ledger
-                ->groupBy('product_variant_id')
-                ->map(function ($rows) {
-                    return [
-                        'manual_qty' => (int) $rows->sum('qty'),
-                        // we’ll only expose these back to owners
-                        'entries'    => $rows->map(fn($r) => [
-                            'id'               => $r->id,
-                            'type'             => $r->entry_type,
-                            'qty'              => $r->qty,
-                            'note'             => $r->note,
-                            'created_at'       => $r->created_at,
-                            'for_date'         => $r->for_date,
-                            'shelf_life_days'  => $r->shelf_life_days,
-                        ])->values(),
-                    ];
-                });
-
-            // 3) Reserved from deliveries (same-day)
-            $reserved = DB::table('deliveries as d')
-                ->join('subscriptions as s', 's.id', '=', 'd.subscription_id')
-                ->select('s.product_variant_id', DB::raw('SUM(d.qty) as qty'))
-                ->where('s.vendor_id', $vendor->id)
-                ->whereDate('d.scheduled_date', $date)
-                ->when($locationId, fn($q) => $q->where('d.vendor_location_id', $locationId))
-                ->whereIn('d.status', ['scheduled','ready'])
-                ->groupBy('s.product_variant_id')
-                ->pluck('qty', 'product_variant_id');
-
-            // 4) Build response rows
-            $variantIds = collect($manualByVariant->keys())
-                ->merge($reserved->keys())->unique()->values();
-
-            $variants = DB::table('product_variants as pv')
-                ->join('products as p', 'p.id', '=', 'pv.product_id')
-                ->select(
-                    'pv.id','pv.name as variant_name','pv.price_cents','pv.quantity_per_unit','pv.unit_label','pv.sort_order',
-                    'p.id as product_id','p.name as product_name'
-                )
-                ->whereIn('pv.id', $variantIds)
-                ->orderBy('p.name')->orderBy('pv.sort_order')
-                ->get();
-
-            $rows = $variants->map(function ($v) use ($manualByVariant, $reserved, $isOwner) {
-                $man   = $manualByVariant->get($v->id, ['manual_qty' => 0, 'entries' => collect()]);
-                $res   = (int) ($reserved[$v->id] ?? 0);
-                $avail = (int) $man['manual_qty'] - $res;
+        $ledgerByVariant = $ledgerRows
+            ->groupBy('product_variant_id')
+            ->map(function ($rows) {
                 return [
-                    'product_id'         => (int) $v->product_id,
-                    'product_name'       => $v->product_name,
-                    'product_variant_id' => (int) $v->id,
-                    'variant_name'       => $v->variant_name,
-                    'price_cents'        => (int) $v->price_cents,
-                    'quantity_per_unit'  => $v->quantity_per_unit ? (int)$v->quantity_per_unit : null,
-                    'unit_label'         => $v->unit_label,
-                    'manual_qty'         => (int) $man['manual_qty'],
-                    'reserved_qty'       => $res,
-                    'available_qty'      => $avail,
-                    // hide per-entry details from the public
-                    'entries'            => $isOwner ? array_values($man['entries']->toArray()) : [],
+                    'manual_qty' => (int) $rows->sum('qty'),
+                    'entries'    => $rows->map(fn ($r) => [
+                        'id'              => $r->id,
+                        'type'            => $r->entry_type,
+                        'qty'             => $r->qty,
+                        'note'            => $r->note,
+                        'created_at'      => $r->created_at,
+                        'for_date'        => $r->for_date,
+                        'shelf_life_days' => $r->shelf_life_days,
+                    ])->values(),
                 ];
-            })->values();
+            });
 
-            // Orders (only for owners)
-            $orders = DB::table('deliveries as d')
-                ->join('subscriptions as s', 's.id', '=', 'd.subscription_id')
-                ->join('product_variants as pv', 'pv.id', '=', 's.product_variant_id')
-                ->join('products as p', 'p.id', '=', 's.product_id')
-                ->select(
-                    'd.id as delivery_id',
-                    'd.scheduled_date',
-                    'd.status',
-                    'd.qty',
-                    's.id as subscription_id',
-                    's.customer_id',
-                    'p.name as product_name',
-                    'pv.name as variant_name',
-                    'pv.id as product_variant_id'
-                )
-                ->where('s.vendor_id', $vendor->id)
-                ->whereDate('d.scheduled_date', $date)
-                ->when($locationId, fn ($q) => $q->where('d.vendor_location_id', $locationId))
-                // 👇 include the statuses you want to show in the UI list
-                ->whereIn('d.status', ['scheduled', 'ready', 'picked_up','skipped','missed','refunded'])
-                ->orderBy('p.name')
-                ->orderBy('pv.sort_order')
-                ->get();
-                
-            return response()->json([
-                'date'        => $date,
-                'location_id' => $locationId,
-                'variants'    => $rows,
-                'orders'      => $orders, // [] for public
-            ]);
+        // -------- Subqueries for rollups (manual & reserved) ----------
+        $entriesTable = (new \App\Models\InventoryEntry())->getTable();
+
+        $ledgerSub = \DB::table("$entriesTable as ie")
+            ->select('ie.product_variant_id', \DB::raw('SUM(ie.qty) as manual_qty'))
+            ->where('ie.vendor_id', $vendor->id)
+            ->when($locationId, fn ($q) => $q->where('ie.vendor_location_id', $locationId))
+            ->whereDate('ie.for_date', '<=', $date)
+            ->where(function ($q) use ($date) {
+                $q->whereNull('ie.shelf_life_days')
+                ->orWhereRaw('DATE(ie.for_date) >= DATE_SUB(?, INTERVAL ie.shelf_life_days DAY)', [$date]);
+            })
+            ->groupBy('ie.product_variant_id');
+
+        $reservedSub = \DB::table('deliveries as d')
+            ->join('subscriptions as s', 's.id', '=', 'd.subscription_id')
+            ->select('s.product_variant_id', \DB::raw('SUM(d.qty) as reserved_qty'))
+            ->where('s.vendor_id', $vendor->id)
+            ->when($locationId, fn ($q) => $q->where('d.vendor_location_id', $locationId))
+            ->whereDate('d.scheduled_date', $date)
+            ->whereIn('d.status', ['scheduled','ready'])
+            ->groupBy('s.product_variant_id');
+
+        // -------- Return ALL variants for this vendor (even if no activity yet) ----------
+        $variants = \DB::table('product_variants as pv')
+            ->join('products as p', 'p.id', '=', 'pv.product_id')
+            ->leftJoinSub($ledgerSub,  'L', 'L.product_variant_id', '=', 'pv.id')
+            ->leftJoinSub($reservedSub,'R', 'R.product_variant_id', '=', 'pv.id')
+            ->select(
+                'pv.id as product_variant_id',
+                'pv.name as variant_name',
+                'pv.price_cents',
+                'pv.quantity_per_unit',
+                'pv.unit_label',
+                'pv.sort_order',
+                'p.id as product_id',
+                'p.name as product_name',
+                \DB::raw('COALESCE(L.manual_qty, 0) as manual_qty'),
+                \DB::raw('COALESCE(R.reserved_qty, 0) as reserved_qty'),
+                \DB::raw('(COALESCE(L.manual_qty, 0) - COALESCE(R.reserved_qty, 0)) as available_qty')
+            )
+            ->where('p.vendor_id', $vendor->id)
+            // Show only active to the public; owners can see all
+            ->when(!$isOwner, fn ($q) => $q->where('p.active', true)->where('pv.active', true))
+            ->orderBy('p.name')
+            ->orderBy('pv.sort_order')
+            ->get();
+
+        // -------- Shape response rows (include per-entry details only for owners) ----------
+        $rows = $variants->map(function ($v) use ($ledgerByVariant, $isOwner) {
+            $entriesPack = $ledgerByVariant->get($v->product_variant_id, ['manual_qty' => 0, 'entries' => collect()]);
+
+            return [
+                'product_id'         => (int) $v->product_id,
+                'product_name'       => $v->product_name,
+                'product_variant_id' => (int) $v->product_variant_id,
+                'variant_name'       => $v->variant_name,
+                'price_cents'        => (int) $v->price_cents,
+                'quantity_per_unit'  => $v->quantity_per_unit ? (int) $v->quantity_per_unit : null,
+                'unit_label'         => $v->unit_label,
+                'manual_qty'         => (int) $v->manual_qty,
+                'reserved_qty'       => (int) $v->reserved_qty,
+                'available_qty'      => (int) $v->available_qty,
+                'entries'            => $isOwner
+                    ? array_values(($entriesPack['entries'] ?? collect())->toArray())
+                    : [],
+            ];
+        })->values();
+
+        // -------- Orders list (unchanged) ----------
+        $orders = \DB::table('deliveries as d')
+            ->join('subscriptions as s', 's.id', '=', 'd.subscription_id')
+            ->join('product_variants as pv', 'pv.id', '=', 's.product_variant_id')
+            ->join('products as p', 'p.id', '=', 's.product_id')
+            ->select(
+                'd.id as delivery_id',
+                'd.scheduled_date',
+                'd.status',
+                'd.qty',
+                's.id as subscription_id',
+                's.customer_id',
+                'p.name as product_name',
+                'pv.name as variant_name',
+                'pv.id as product_variant_id'
+            )
+            ->where('s.vendor_id', $vendor->id)
+            ->whereDate('d.scheduled_date', $date)
+            ->when($locationId, fn ($q) => $q->where('d.vendor_location_id', $locationId))
+            ->whereIn('d.status', ['scheduled', 'ready', 'picked_up','skipped','missed','refunded'])
+            ->orderBy('p.name')
+            ->orderBy('pv.sort_order')
+            ->get();
+
+        return response()->json([
+            'date'        => $date,
+            'location_id' => $locationId,
+            'variants'    => $rows,
+            'orders'      => $orders,
+        ]);
     }
-
     public function store(Request $req, Vendor $vendor)
     {
         $this->authorize('update', $vendor);
