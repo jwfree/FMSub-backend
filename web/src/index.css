@@ -50,19 +50,22 @@
 
   /* Farmers (your custom) */
   [data-theme="farmers"] {
-    --color-primary: #2E7D32;
-    --color-primary-content: #ffffff;
-    --color-secondary: #D26A2E;
-    --color-secondary-content: #1f130c;
-    --color-accent: #5C7F67;
-    --color-base-100: #F3E7CF;
-    --color-base-200: #EAD9BD;
-    --color-base-300: #E1CFB0;
-    --color-base-content: #2A2A2A;
-    --color-info: #3ABFF8;
-    --color-success: #36D399;
-    --color-warning: #FBBF24;
-    --color-error: #F87272;
+    --color-base-100: #FBF4E2;
+    --color-base-200: #F3E6C9;
+    --color-base-300: #E7D7AF;
+    --color-base-content: #2A1F0F;
+
+    --color-primary: #B45309;              /* burnt orange */
+    --color-primary-content: #fff;
+    --color-secondary: #92400E;            /* deeper orange-brown */
+    --color-secondary-content: #fff;
+    --color-accent: #4D7C0F;               /* olive green */
+    --color-accent-content: #fff;
+
+    --color-info: #2563EB;
+    --color-success: #16A34A;
+    --color-warning: #D97706;
+    --color-error: #DC2626;
   }
 
   /* A few extras to replace DaisyUI presets (tweak as desired) */
@@ -285,5 +288,16 @@
     @apply rounded-xl border shadow-sm;
     background-color: var(--color-base-100);
     border-color: var(--color-base-300);
+  }
+}
+
+/* iOS Safari anti-zoom: keep inputs ≥16px on small screens */
+@layer utilities {
+  @media (max-width: 480px) {
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
   }
 }

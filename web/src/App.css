@@ -40,3 +40,11 @@
 .read-the-docs {
   color: #888;
 }
+
+@media (max-width: 480px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

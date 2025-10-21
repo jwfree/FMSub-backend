@@ -36,4 +36,18 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(Vendor::class, 'vendor_favorites')->withTimestamps();
     }
+
+    // app/Models/User.php
+
+    public function notifications()
+    {
+        return $this->hasMany(\App\Models\Notification::class, 'recipient_id');
+    }
+
+    public function notificationPreferences()
+    {
+        return $this->hasOne(\App\Models\NotificationPreference::class);
+    }   
+
+
 }

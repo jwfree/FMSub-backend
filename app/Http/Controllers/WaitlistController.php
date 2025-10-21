@@ -7,6 +7,8 @@ use App\Models\Vendor;
 use App\Models\WaitlistEntry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+
 
 class WaitlistController extends Controller
 {
@@ -128,4 +130,115 @@ class WaitlistController extends Controller
 
         return response()->json(['ok' => true]);
     }
+    /**
+     * GET /api/waitlists/mine
+     * Returns current user's waitlist entries with position/total per VARIANT,
+     * including product + vendor + image_url.
+     */
+    public function mine(Request $request)
+    {
+        $customerId = $request->user()->id;
+
+        // 1) Fetch this customer's entries (keep joins lean; preload what we need later)
+        $mine = WaitlistEntry::query()
+            ->where('customer_id', $customerId)
+            ->orderBy('created_at')
+            ->get(['id','vendor_id','product_id','product_variant_id','qty','note','created_at']);
+
+        if ($mine->isEmpty()) {
+            return response()->json([]);
+        }
+
+        // 2) Collect variant ids we need to compute positions/totals for
+        $variantIds = $mine->pluck('product_variant_id')->unique()->all();
+
+        // 3) Fetch ALL rows for those variants (to compute position/total) in one query
+        $allForThoseVariants = WaitlistEntry::query()
+            ->whereIn('product_variant_id', $variantIds)
+            ->orderBy('product_variant_id')
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get(['id','product_id','product_variant_id','customer_id','created_at']);
+
+        // 4) Build position + total maps per variant
+        $perVariant = [];
+        foreach ($allForThoseVariants as $row) {
+            $vid = (int) $row->product_variant_id;
+            if (!isset($perVariant[$vid])) {
+                $perVariant[$vid] = [
+                    'total' => 0,
+                    'order' => [], // array of [entry_id => position]
+                ];
+            }
+            $perVariant[$vid]['total']++;
+            $pos = $perVariant[$vid]['total']; // 1-based as we append
+            $perVariant[$vid]['order'][(int) $row->id] = $pos;
+        }
+
+        // 5) Preload products/vendors/variants for the user's entries
+        $productIds = $mine->pluck('product_id')->unique()->all();
+        $variantModels = ProductVariant::query()
+            ->whereIn('id', $variantIds)
+            ->get(['id','name','product_id','price_cents'])
+            ->keyBy('id');
+
+        $products = \App\Models\Product::query()
+            ->whereIn('id', $productIds)
+            ->with(['vendor:id,name'])
+            ->get(['id','name','vendor_id','image_path'])
+            ->keyBy('id');
+
+        // 6) Shape response
+        $out = $mine->map(function ($e) use ($perVariant, $variantModels, $products) {
+            $vid  = (int) $e->product_variant_id;
+            $pid  = (int) $e->product_id;
+
+            $variant   = $variantModels->get($vid);
+            $product   = $products->get($pid);
+            $vendor    = $product?->vendor;
+
+            $total     = (int) ($perVariant[$vid]['total'] ?? 0);
+            $position  = (int) ($perVariant[$vid]['order'][(int) $e->id] ?? 0);
+
+            // Build public image URL if you store product images on the 'public' disk
+            $imagePath = $product?->image_path; // adjust to your schema
+            $imageUrl  = $imagePath ? Storage::disk('public')->url($imagePath) : null;
+
+            return [
+                'id'        => (int) $e->id,
+                'qty'       => (int) $e->qty,
+                'note'      => $e->note,
+                'created_at'=> $e->created_at?->toISOString(),
+                'position'  => $position,
+                'total'     => $total,
+
+                'variant'   => $variant ? [
+                    'id'    => (int) $variant->id,
+                    'name'  => $variant->name,
+                    'price_cents' => (int) $variant->price_cents,
+                ] : null,
+
+                'product'   => $product ? [
+                    'id'    => (int) $product->id,
+                    'name'  => $product->name,
+                    'image_url' => $imageUrl,
+                    'vendor' => $vendor ? [
+                        'id'   => (int) $vendor->id,
+                        'name' => $vendor->name,
+                    ] : null,
+                ] : null,
+            ];
+        })->values();
+
+        return response()->json($out);
+    }  
+    public function destroyMine(WaitlistEntry $entry)
+    {
+        $user = request()->user();
+        if (!$user || $entry->customer_id !== $user->id) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
+        $entry->delete();
+        return response()->json(['ok' => true]);
+    }  
 }

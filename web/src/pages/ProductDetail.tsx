@@ -1,5 +1,5 @@
 // web/src/pages/ProductDetail.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import Lightbox from "../components/Lightbox";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
@@ -23,6 +23,15 @@ type Product = {
   allow_waitlist?: boolean;
 };
 
+type WaitMineItem = {
+  id: number;
+  qty: number;
+  position: number;
+  total: number;
+  variant?: { id: number; name: string; price_cents: number } | null;
+  product?: { id: number; name: string } | null;
+};
+
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -31,12 +40,13 @@ export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const isAuthed = !!localStorage.getItem("token");
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // subscribe form
+  // subscribe/waitlist form
   const [variantId, setVariantId] = useState<number | "">("");
   const [quantity, setQuantity] = useState<number>(1);
   const [frequency, setFrequency] =
@@ -50,9 +60,12 @@ export default function ProductDetail() {
   const [showImg, setShowImg] = useState(false);
   const [imgHidden, setImgHidden] = useState(false);
 
-  // availability map
+  // availability map (today)
   const [availableTodayByVariant, setAvailableTodayByVariant] = useState<Record<number, number>>({});
   const [availLoading, setAvailLoading] = useState(false);
+
+  // my waitlist entries (for UX flip after join + showing position)
+  const [myWaits, setMyWaits] = useState<WaitMineItem[] | null>(null);
 
   // Load product
   useEffect(() => {
@@ -102,6 +115,36 @@ export default function ProductDetail() {
     };
   }, [product?.vendor?.id]);
 
+  // Fetch my waitlists (only if authed)
+  async function refreshMyWaits() {
+    if (!isAuthed) {
+      setMyWaits(null);
+      return;
+    }
+    try {
+      const r = await api.get<WaitMineItem[]>("/waitlists/mine");
+      setMyWaits(r.data || []);
+    } catch {
+      setMyWaits(null);
+    } finally {
+    }
+  }
+
+  useEffect(() => {
+    refreshMyWaits();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthed]);
+
+  // Derive whether *selected* variant is already on my waitlist (and position)
+  const myWaitForSelected = useMemo(() => {
+    if (!myWaits || !product || typeof variantId !== "number") return null;
+    return (
+      myWaits.find(
+        (w) => (w.product?.id ?? -1) === product.id && (w.variant?.id ?? -1) === variantId
+      ) || null
+    );
+  }, [myWaits, product, variantId]);
+
   // --- Actions ---
   async function onSubscribe() {
     if (!variantId || !startDate || quantity < 1) return;
@@ -128,25 +171,35 @@ export default function ProductDetail() {
     }
   }
 
-  async function onJoinWaitlist() {
-    if (!variantId) return;
-    setSubmitting(true);
-    try {
-      await api.post("/waitlist", {
-        product_id: product?.id,
-        product_variant_id: Number(variantId),
-        quantity,
-        notes: notes || undefined,
-      });
-      setToast("Added to waitlist!");
-    } catch (e: any) {
-      setToast(e?.response?.data?.message || "Failed to join waitlist");
-    } finally {
-      setSubmitting(false);
-      setTimeout(() => setToast(null), 2000);
-    }
+async function onJoinWaitlist() {
+  if (!variantId) return;
+  if (!isAuthed) {
+    // require login to personalize waitlist + show position later
+    window.location.href = `/login?next=/products/${id}`;
+    return;
   }
+  setSubmitting(true);
+  try {
+    // Backend expects: product_variant_id, qty, note
+    await api.post("/waitlist", {
+      product_variant_id: Number(variantId),
+      qty: Math.max(1, quantity),
+      note: notes || undefined,
+    });
+    setToast("Added to waitlist!");
 
+    // refresh my waits to get position/total and flip UI
+    await refreshMyWaits();
+
+    // 🔔 Notify other tabs/components (e.g. Browse) to update waitlist indicators
+    window.dispatchEvent(new CustomEvent("waitlist:changed"));
+  } catch (e: any) {
+    setToast(e?.response?.data?.message || "Failed to join waitlist");
+  } finally {
+    setSubmitting(false);
+    setTimeout(() => setToast(null), 2000);
+  }
+}
   // --- Derived state ---
   if (loading) return <div className="p-4 text-sm text-base-content/80">Loading…</div>;
   if (err || !product) return <div className="p-4 text-error">{err ?? "Not found"}</div>;
@@ -161,11 +214,26 @@ export default function ProductDetail() {
   const outOfStockToday =
     typeof selectedAvailToday === "number" ? selectedAvailToday <= 0 : false;
 
-  const canWaitlist = product.allow_waitlist && outOfStockToday;
+  const canWaitlist = !!product.allow_waitlist && outOfStockToday;
+
+  // Button labeling/state
+  const alreadyOnWaitlist = !!myWaitForSelected;
+  const waitlistBadge =
+    alreadyOnWaitlist && myWaitForSelected?.position && myWaitForSelected?.total
+      ? `On waitlist: ${myWaitForSelected.position} of ${myWaitForSelected.total}`
+      : "On waitlist";
 
   let buttonText = "Subscribe";
   if (outOfStockToday && !canWaitlist) buttonText = "Out of stock";
-  if (canWaitlist) buttonText = "Join waitlist";
+  if (canWaitlist) buttonText = alreadyOnWaitlist ? waitlistBadge : "Join waitlist";
+
+  const buttonDisabled =
+    submitting ||
+    !variantId ||
+    !startDate ||
+    quantity < 1 ||
+    (outOfStockToday && !canWaitlist) ||
+    (canWaitlist && alreadyOnWaitlist); // disable if already on waitlist
 
   const handleClick =
     outOfStockToday && canWaitlist ? onJoinWaitlist : onSubscribe;
@@ -222,7 +290,7 @@ export default function ProductDetail() {
           ))}
         </select>
 
-        {/* Availability note */}
+        {/* Availability + Waitlist notice */}
         {availLoading ? (
           <div className="text-xs text-base-content/70">Checking today’s availability…</div>
         ) : typeof selectedAvailToday === "number" ? (
@@ -238,6 +306,15 @@ export default function ProductDetail() {
               : `Available today: ${selectedAvailToday}`}
           </div>
         ) : null}
+
+        {/* If already on waitlist for selected variant, surface the position here too */}
+        {canWaitlist && alreadyOnWaitlist && (
+          <div className="text-xs text-warning">
+            {myWaitForSelected?.position && myWaitForSelected?.total
+              ? `You’re on the waitlist for this option — position ${myWaitForSelected.position} of ${myWaitForSelected.total}.`
+              : `You’re on the waitlist for this option.`}
+          </div>
+        )}
 
         {/* Quantity */}
         <div>
@@ -279,7 +356,7 @@ export default function ProductDetail() {
           )}
         </div>
 
-        {/* Start date + frequency (restored) */}
+        {/* Start date + frequency */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <div>
             <div className="text-xs text-base-content/80 mb-1">Start date</div>
@@ -319,20 +396,17 @@ export default function ProductDetail() {
         {/* Main action */}
         <button
           onClick={handleClick}
-          disabled={
-            submitting ||
-            !variantId ||
-            !startDate ||
-            quantity < 1 ||
-            (outOfStockToday && !canWaitlist)
-          }
+          disabled={buttonDisabled}
           className={`btn w-full rounded-lg disabled:opacity-60 ${
             canWaitlist
-              ? "btn-secondary"
+              ? alreadyOnWaitlist
+                ? "btn-ghost border border-base-300"
+                : "btn-secondary"
               : outOfStockToday
               ? "btn-ghost border border-base-300"
               : "btn-primary"
           }`}
+          title={alreadyOnWaitlist ? "You’re already on this waitlist" : undefined}
         >
           {submitting ? "Processing…" : buttonText}
         </button>

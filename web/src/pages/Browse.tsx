@@ -3,8 +3,10 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api, { getMyFavoriteVendors, favoriteVendor, unfavoriteVendor } from "../lib/api";
 import VendorCard, { type Vendor } from "../components/VendorCard";
 import ProductCard, { type Product as ProductCardType } from "../components/ProductCard";
+import { Share2 } from "lucide-react";
 
 const FAVORITES_VERSION_KEY = "__favorites_version";
+
 
 /** API shapes we’ll use (with a few optional fields for progressive enhancement) */
 type Page<T> = {
@@ -13,6 +15,9 @@ type Page<T> = {
   last_page: number;
   total: number;
 };
+
+type OrderDir = "asc" | "desc";
+
 
 type VendorWithDistance = Vendor & {
   distance_miles?: number; // provided when using nearby on backend
@@ -30,6 +35,14 @@ type Product = ProductCardType & {
 
   // common flag already present on product
   allow_waitlist?: boolean;
+};
+
+type WaitMineEntry = {
+  id: number;
+  position: number;
+  total: number;
+  variant?: { id: number; name: string; price_cents: number };
+  product?: { id: number; name: string; image_url?: string | null; vendor?: { id: number; name: string } | null };
 };
 
 /** Small helpers */
@@ -52,6 +65,12 @@ export default function Browse() {
   const navigate = useNavigate();
   const isAuthed = !!localStorage.getItem("token");
 
+// initial from URL
+const initialOrderDir = ((): OrderDir => {
+  const d = (searchParams.get("orderDir") || "").toLowerCase();
+  return d === "desc" ? "desc" : "asc";
+})();
+
   /* ───────────────── Restore last /browse URL (only if landing clean) ───────────────── */
   useEffect(() => {
     if (location.pathname === "/browse" && !location.search) {
@@ -65,6 +84,9 @@ export default function Browse() {
   }, []);
 
   // ----- initial state from URL -----
+
+  const [orderDir, setOrderDir] = useState<OrderDir>(initialOrderDir);
+
   const initialTab = ((): "vendors" | "products" => {
     const t = (searchParams.get("tab") || "").toLowerCase();
     return t === "products" ? "products" : "vendors";
@@ -134,6 +156,18 @@ export default function Browse() {
   const [mode, setMode] = useState<"favorites" | "nearby" | "all">(initialMode);
   const [radius, setRadius] = useState<number>(initialRadius);
   const [radiusKind, setRadiusKind] = useState<"preset" | "other">(initialRadiusKind);
+  const [radiusText, setRadiusText] = useState<string>(String(initialRadius));
+
+  useEffect(() => {
+    if (radiusKind === "other") setRadiusText(String(radius));
+  }, [radiusKind, radius]);
+
+  function commitRadius() {
+    const n = Math.max(1, Math.floor(Number(radiusText) || 0));
+    setRadius(n);
+    setRadiusText(String(n));
+  }
+
   const presetRadii = [5, 10, 15, 25, 50];
 
   const [vendorView, setVendorView] = useState<"cards" | "list">(initialVendorView);
@@ -171,6 +205,9 @@ export default function Browse() {
 
   const nextUrl = `${window.location.pathname}${window.location.search}`;
   const userToken = localStorage.getItem("token");
+
+  // waitlist -> productId => best position/total (lowest position)
+  const [waitMap, setWaitMap] = useState<Record<number, { position: number; total: number }>>({});
 
   const DEFAULTS = {
     tab: "vendors" as const,
@@ -259,6 +296,7 @@ export default function Browse() {
     else sp.set("vendor", String(vendorIdFilter));
     sp.set("availability", availability);
     sp.set("orderBy", orderBy);
+    sp.set("orderDir", orderDir);  
     sp.set("productView", productView);
 
     // Push to URL (don’t navigate away) and remember last browse URL
@@ -272,7 +310,7 @@ export default function Browse() {
     // vendor side
     mode, radius, radiusKind, vendorView, qVendors,
     // product side
-    qProducts, page, vendorIdFilter, availability, orderBy, productView,
+    qProducts, page, vendorIdFilter, availability, orderBy, orderDir, productView,
   ]);
 
   // ask for location if in nearby mode
@@ -291,6 +329,40 @@ export default function Browse() {
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
     );
   }, [tab, mode, coords, geoErr]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadWaits() {
+      if (!userToken) {
+        if (!cancelled) setWaitMap({});
+        return;
+      }
+      try {
+        const r = await api.get<WaitMineEntry[]>("/waitlists/mine");
+        if (cancelled) return;
+
+        const m: Record<number, { position: number; total: number }> = {};
+        for (const w of r.data || []) {
+          const pid = w.product?.id;
+          if (!pid) continue;
+          const pos = Number(w.position || 0);
+          const tot = Number(w.total || 0);
+          if (!m[pid] || pos < m[pid].position) {
+            m[pid] = { position: pos, total: tot };
+          }
+        }
+        setWaitMap(m);
+      } catch {
+        // silently ignore; indicator just won't show
+        if (!cancelled) setWaitMap({});
+      }
+    }
+
+    loadWaits();
+    return () => { cancelled = true; };
+  }, [userToken]);
+
 
   // fetch vendors
   useEffect(() => {
@@ -459,10 +531,12 @@ export default function Browse() {
       const pParams: Record<string, any> = {
         per_page: perPage,
         page,
-        order_by: orderBy,        // server may use this
+        order_by: orderBy,
+        order_dir: orderDir, 
         availability: mapAvailabilityForServer(availability),
         date: todayISO(),         // for availability computation
       };
+      if (orderDir) pParams.order_dir = orderDir;
       if (qProducts.trim()) pParams.q = qProducts.trim();
 
       // Prefer server-side filtering via vendor_ids if we have some.
@@ -478,6 +552,24 @@ export default function Browse() {
         if (vendorIds.length && !items.every((p) => vendorIds.includes(p.vendor?.id ?? -9999))) {
           items = items.filter((p) => vendorIds.includes(p.vendor?.id ?? -9999));
         }
+
+        const dir = orderDir === "asc" ? 1 : -1;
+
+        if (orderBy === "price") {
+          const priceOf = (p: Product) => {
+            const vmin = p.variants?.length
+              ? Math.min(...p.variants.map(v => v.price_cents ?? Infinity))
+              : Infinity;
+            return p.min_price_cents ?? vmin ?? Infinity;
+          };
+          items = items.slice().sort((a, b) => (priceOf(a) - priceOf(b)) * dir);
+        } else if (orderBy === "name") {
+          items = items.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "") * dir);
+        } else if (orderBy === "distance") {
+          items = items.slice().sort(
+            (a, b) => ((a.distance_miles ?? Infinity) - (b.distance_miles ?? Infinity)) * dir
+          );
+        }      
 
         setProducts({
           data: items,
@@ -496,12 +588,12 @@ export default function Browse() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, qVendors, qProducts, page, vendorIdFilter, availability, orderBy, radius, coords, isAuthed, userToken]);
+  }, [tab, qVendors, qProducts, page, vendorIdFilter, availability, orderBy, orderDir, radius, coords, isAuthed, userToken]);
 
   // reset page on major filter changes
   useEffect(() => {
     setPage(1);
-  }, [tab, qVendors, qProducts, vendorIdFilter, mode, radius, radiusKind, availability, orderBy, vendorView, productView]);
+  }, [tab, qVendors, qProducts, vendorIdFilter, mode, radius, radiusKind, availability, orderBy, orderDir, vendorView, productView]);
 
   async function handleToggleFavorite(vendorId: number, next: boolean) {
     if (!localStorage.getItem("token")) {
@@ -669,10 +761,13 @@ export default function Browse() {
               {radiusKind === "other" && (
                 <input
                   type="number"
+                  inputMode="numeric"
                   min={1}
                   step={1}
-                  value={radius}
-                  onChange={(e) => setRadius(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                  value={radiusText}
+                  onChange={(e) => setRadiusText(e.target.value)}        // allow empty text
+                  onBlur={commitRadius}                                  // validate on blur
+                  onKeyDown={(e) => { if (e.key === "Enter") commitRadius(); }}
                   className="w-24 rounded-xl border border-base-300 bg-base-100 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-primary] focus:border-[--color-primary]"
                   placeholder="miles"
                   aria-label="Custom radius in miles"
@@ -722,6 +817,16 @@ export default function Browse() {
             <option value="price">Price</option>
             <option value="distance">Distance</option>
           </select>
+
+          <select
+            value={orderDir}
+            onChange={(e) => setOrderDir(e.target.value as OrderDir)}
+            className="rounded-xl border border-base-300 bg-base-100 p-2 text-sm ..."
+            title="Sort direction"
+          >
+            <option value="asc">↑ Asc</option>
+            <option value="desc">↓ Desc</option>
+          </select>          
 
           {hasAnyFilters() && (
             <div className="mb-2 flex justify-end">
@@ -829,19 +934,17 @@ export default function Browse() {
               {products?.data.map((p) => (
                 <ProductCard
                   key={p.id}
-                  product={{
-                    ...p,
-                    vendor: p.vendor ? p.vendor : undefined,
-                  }}
+                  product={{ ...p, vendor: p.vendor ? p.vendor : undefined }}
                   to={`/products/${p.id}`}
                   state={{ from: window.location.pathname + window.location.search }}
+                  waitlistInfo={waitMap[p.id] ? { position: waitMap[p.id].position, total: waitMap[p.id].total } : undefined}
                 />
               ))}
             </div>
           ) : (
             <div className="divide-y divide-base-300 rounded-xl border border-base-300 bg-base-100">
               {products?.data.map((p) => (
-                <ProductRow key={p.id} product={p} />
+                <ProductRow key={p.id} product={p} waitInfo={waitMap[p.id]} />
               ))}
             </div>
           )}
@@ -908,6 +1011,32 @@ function VendorRow({
   onToggleFavorite?: (vendorId: number, next: boolean) => void;
 }) {
   const next = !favorited;
+  const [copied, setCopied] = useState(false);
+
+  async function copyShareLink(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = `${window.location.origin}/vendors/${vendor.id}`;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        // Fallback
+        const input = document.createElement("input");
+        input.value = url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        document.body.removeChild(input);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Worst case: open the vendor page in a new tab
+      window.open(url, "_blank");
+    }
+  }
+
   return (
     <a
       href={`/vendors/${vendor.id}`}
@@ -921,9 +1050,28 @@ function VendorRow({
           </span>
         )}
       </div>
+
+      {/* Share button */}
+      <button
+        className="ml-1 rounded p-1 hover:bg-base-200"
+        title="Copy link"
+        aria-label="Copy vendor link"
+        onClick={copyShareLink}
+      >
+        <Share2 className="w-4 h-4 text-base-content/70" />
+      </button>
+
+      {/* Tiny copied chip */}
+      {copied && (
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-base-200 text-base-content/80 select-none">
+          Copied!
+        </span>
+      )}
+
+      {/* Favorite button */}
       <button
         aria-label={favorited ? "Unfavorite" : "Favorite"}
-        className="ml-2 text-lg"
+        className="ml-1 text-lg"
         title={favorited ? "Remove from favorites" : "Add to favorites"}
         onClick={(e) => {
           e.preventDefault();
@@ -940,8 +1088,8 @@ function VendorRow({
 }
 
 /** Compact product row for “list” view */
-function ProductRow({ product }: { product: Product }) {
-  const minPrice =
+function ProductRow({ product, waitInfo }: { product: Product; waitInfo?: { position: number; total: number } }) {
+    const minPrice =
     product.min_price_cents ??
     (product.variants?.length ? Math.min(...product.variants.map(v => v.price_cents ?? Infinity)) : undefined);
 
@@ -977,6 +1125,11 @@ function ProductRow({ product }: { product: Product }) {
               ? "Out of stock — Waitlist"
               : "Out of stock"}
           </span>
+          {waitInfo && (
+            <span className="ml-2 text-warning">
+              On waitlist — {waitInfo.position} of {waitInfo.total}
+            </span>
+          )}
         </div>
       </div>
       <span className="text-sm text-primary">View →</span>

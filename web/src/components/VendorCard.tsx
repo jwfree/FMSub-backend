@@ -1,9 +1,13 @@
 // web/src/components/VendorCard.tsx
 import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Share2 } from "lucide-react";
+import { formatPhone } from "../lib/format";
 
 export type Vendor = {
   id: number;
   name: string;
+  description?: string | null;  
   contact_email?: string | null;
   contact_phone?: string | null;
   banner_url?: string | null;
@@ -15,7 +19,7 @@ export type Vendor = {
 type Props = {
   vendor: Vendor;
   onClick?: (v: Vendor) => void;
-  favorited: boolean;  // make this required (no `?`)
+  favorited: boolean;  // required
   onToggleFavorite?: (vendorId: number, next: boolean) => void;
   compact?: boolean;
 };
@@ -27,12 +31,36 @@ export default function VendorCard({
   onToggleFavorite,
   compact = false,
 }: Props) {
-
   const next = !favorited;
+  const [copied, setCopied] = useState(false);
 
   const shellCls = compact
     ? "block w-full rounded-lg p-2 bg-base-100 border border-base-300 hover:bg-base-200 transition"
     : "block w-full rounded-2xl shadow p-4 bg-base-100 hover:shadow-md transition relative";
+
+  async function copyShareLink(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = `${window.location.origin}/vendors/${vendor.id}`;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        // Fallback for older browsers
+        const input = document.createElement("input");
+        input.value = url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        document.body.removeChild(input);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1300);
+    } catch {
+      // If copy fails, at least open in a new tab (optional)
+      window.open(url, "_blank");
+    }
+  }
 
   return (
     <Link
@@ -41,25 +69,48 @@ export default function VendorCard({
       className={shellCls}
       aria-label={vendor.name}
     >
-      {/* Heart button */}
-      <button
-        aria-label={favorited ? "Unfavorite" : "Favorite"}
-        className="absolute top-3 right-3 z-10"
-        title={favorited ? "Remove from favorites" : "Add to favorites"}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onToggleFavorite?.(vendor.id, next);
-        }}
-      >
-        <span
-          className={`text-lg ${
-            favorited ? "text-[var(--primary)]" : "text-neutral-500"
-          }`}
-        >
-          {favorited ? "♥" : "♡"}
-        </span>
-      </button>
+
+      {/* Top-right controls (only on non-compact cards) */}
+      {!compact && (
+        <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5">
+          {/* Share */}
+          <button
+            aria-label="Copy share link"
+            className="rounded-full p-1 hover:bg-base-200 transition"
+            title="Copy link to clipboard"
+            onClick={copyShareLink}
+          >
+            <Share2 className="w-4 h-4 text-base-content/70" />
+          </button>
+
+          {/* Heart */}
+          <button
+            aria-label={favorited ? "Unfavorite" : "Favorite"}
+            className="rounded-full p-1 hover:bg-base-200 transition"
+            title={favorited ? "Remove from favorites" : "Add to favorites"}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleFavorite?.(vendor.id, next);
+            }}
+          >
+            <span
+              className={`text-lg leading-none ${
+                favorited ? "text-[var(--primary)]" : "text-neutral-500"
+              }`}
+            >
+              {favorited ? "♥" : "♡"}
+            </span>
+          </button>
+
+          {/* Copied chip */}
+          {copied && (
+            <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-base-200 text-base-content/80 select-none">
+              Copied!
+            </span>
+          )}
+        </div>
+      )}
 
       <div className={`flex items-center gap-3 ${compact ? "" : "items-start"}`}>
         {vendor.photo_url && (
@@ -92,6 +143,23 @@ export default function VendorCard({
               </span>
             )}
           </div>
+
+          {/* Description (non-compact) */}
+          {!compact && vendor.description && (
+            <p
+              className="text-sm text-base-content/70 mt-1"
+              style={{
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+              title={vendor.description || undefined}
+            >
+              {vendor.description}
+            </p>
+          )}
+
           {!compact && vendor.contact_email && (
             <p className="text-sm text-base-content/80 mt-1 truncate">
               {vendor.contact_email}
@@ -100,28 +168,48 @@ export default function VendorCard({
           {vendor.active === false && (
             <p className="text-xs mt-1 text-error">Inactive</p>
           )}
+          {!compact && vendor.contact_phone && (
+            <p className="text-sm text-base-content/80 mt-0.5 truncate">
+             {formatPhone(vendor.contact_phone)}
+            </p>
+          )}
         </div>
 
+        {/* Compact-row trailing controls */}
         {compact && (
-          <button
-            aria-label={favorited ? "Unfavorite" : "Favorite"}
-            className="shrink-0 px-1"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onToggleFavorite?.(vendor.id, next);
-            }}
-            title={favorited ? "Remove from favorites" : "Add to favorites"}
-          >
-            <span
-              className={`text-base ${
-                favorited ? "text-[--color-primary]" : "text-neutral-500"
-              }`}
+          <div className="shrink-0 flex items-center gap-1.5">
+            {/* Share (compact) */}
+            <button
+              aria-label="Copy share link"
+              className="rounded-full p-1 hover:bg-base-200 transition"
+              title="Copy link to clipboard"
+              onClick={copyShareLink}
             >
-              {favorited ? "♥" : "♡"}
-            </span>
-          </button>
+              <Share2 className="w-4 h-4 text-base-content/70" />
+            </button>
+
+            {/* Heart (compact) */}
+            <button
+              aria-label={favorited ? "Unfavorite" : "Favorite"}
+              className="rounded-full p-1 hover:bg-base-200 transition"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onToggleFavorite?.(vendor.id, next);
+              }}
+              title={favorited ? "Remove from favorites" : "Add to favorites"}
+            >
+              <span
+                className={`text-lg leading-none ${
+                  favorited ? "text-[--color-primary]" : "text-neutral-500"
+                }`}
+              >
+                {favorited ? "♥" : "♡"}
+              </span>
+            </button>
+          </div>
         )}
+
       </div>
     </Link>
   );

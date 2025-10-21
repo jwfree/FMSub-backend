@@ -2,22 +2,49 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 class Notification extends Model
 {
     use HasFactory;
 
-    // channel: email, sms, push | type: reminder, update, marketing
     protected $fillable = [
-        'user_id','channel','type','title','body','sent_at','meta'
+        'recipient_id',
+        'actor_id',
+        'type',
+        'title',
+        'body',
+        'data',
+        'read_at',
     ];
 
     protected $casts = [
-        'sent_at' => 'datetime',
-        'meta' => 'array',
+        'data' => 'array',
+        'read_at' => 'datetime',
     ];
 
-    public function user() { return $this->belongsTo(User::class); }
+    // --- Relationships ---
+    public function recipient()
+    {
+        return $this->belongsTo(User::class, 'recipient_id');
+    }
+
+    public function actor()
+    {
+        return $this->belongsTo(User::class, 'actor_id');
+    }
+
+    // --- Helpers ---
+    public function markAsRead(): void
+    {
+        if (is_null($this->read_at)) {
+            $this->update(['read_at' => now()]);
+        }
+    }
+
+    public function scopeUnread($query)
+    {
+        return $query->whereNull('read_at');
+    }
 }

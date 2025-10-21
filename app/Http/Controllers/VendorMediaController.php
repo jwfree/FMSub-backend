@@ -67,8 +67,7 @@ class VendorMediaController extends Controller
 
                 return $jpegPath;
             } catch (\Throwable $e) {
-                // If conversion fails, keep original file as-is
-                // (Optional) You could log the error: \Log::warning('HEIC convert failed: '.$e->getMessage());
+                // Keep original if conversion fails
             }
         }
 
@@ -182,40 +181,71 @@ class VendorMediaController extends Controller
 
     /* ----------------------------- Flyer PDF ----------------------------- */
 
-    // GET /api/vendors/{vendor}/flyer.pdf
-    public function flyer(Vendor $vendor)
+    // Helper: build the same PDF bytes you currently download
+    private function buildFlyerPdfBytes(Vendor $vendor): string
     {
         $appBase = config('app.frontend_url', env('APP_FRONTEND_URL', 'https://fmsubapp.fbwks.com'));
         $landing = rtrim($appBase, '/') . "/vendors/{$vendor->id}";
 
+        // Keep your existing base64 image + QR approach so output matches today
         [$bannerMime, $bannerB64] = $this->pathToBase64($vendor->banner_path);
         [$photoMime,  $photoB64]  = $this->pathToBase64($vendor->photo_path);
 
         $qrB64  = base64_encode(QrCode::format('png')->size(240)->margin(1)->generate($landing));
         $qrMime = 'image/png';
 
-        // Products omitted from flyer; kept for compatibility if the view reads it
         $products = $vendor->products()
             ->where('active', true)
             ->with(['variants' => fn ($q) => $q->where('active', true)])
             ->orderBy('name')
             ->get();
 
-        return Pdf::loadView('flyers.vendor', [
-                'vendor'       => $vendor,
-                'products'     => $products,
-                'landing'      => $landing,
+        $pdf = Pdf::loadView('flyers.vendor', [
+            'vendor'       => $vendor,
+            'products'     => $products,
+            'landing'      => $landing,
 
-                'bannerMime'   => $bannerMime,
-                'bannerB64'    => $bannerB64,
-                'photoMime'    => $photoMime,
-                'photoB64'     => $photoB64,
-                'qrMime'       => $qrMime,
-                'qrB64'        => $qrB64,
+            'bannerMime'   => $bannerMime,
+            'bannerB64'    => $bannerB64,
+            'photoMime'    => $photoMime,
+            'photoB64'     => $photoB64,
+            'qrMime'       => $qrMime,
+            'qrB64'        => $qrB64,
 
-                'prettyPhone'  => $this->prettyPhone($vendor->contact_phone),
-            ])
-            ->setPaper('letter', 'portrait')
-            ->download("Vendor_{$vendor->id}_flyer.pdf");
+            'prettyPhone'  => $this->prettyPhone($vendor->contact_phone),
+        ])->setPaper('letter', 'portrait');
+
+        return $pdf->output();
+    }
+
+    // GET /api/vendors/{vendor}/flyer.pdf
+    // Now: cache to storage/app/public/vendor_flyers/vendor_{id}.pdf and serve inline
+    public function flyer(Vendor $vendor)
+    {
+        $disk    = Storage::disk('public');
+        $relPath = "vendor_flyers/vendor_{$vendor->id}.pdf";
+
+        $isFresh = false;
+        if ($disk->exists($relPath)) {
+            $last = $disk->lastModified($relPath); // unix timestamp
+            $vendorUpdated = optional($vendor->updated_at)->getTimestamp() ?? 0;
+            $isFresh = $last >= $vendorUpdated;
+        }
+
+        if (!$isFresh) {
+            $bytes = $this->buildFlyerPdfBytes($vendor);
+            // ensure directory exists
+            if (!$disk->exists('vendor_flyers')) {
+                $disk->makeDirectory('vendor_flyers');
+            }
+            $disk->put($relPath, $bytes);
+        }
+
+        $abs = $disk->path($relPath);
+        return response()->file($abs, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="Vendor_'.$vendor->id.'_flyer.pdf"',
+            'Cache-Control'       => 'public, max-age=86400',
+        ]);
     }
 }

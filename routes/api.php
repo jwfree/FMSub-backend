@@ -22,6 +22,9 @@ use App\Http\Controllers\WaitlistController;
 
 use App\Http\Controllers\UserAddressController;
 
+use App\Http\Controllers\NotificationsController;
+
+
 
 
 
@@ -64,6 +67,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/vendors/{vendor}/favorite',[\App\Http\Controllers\VendorFavoritesController::class, 'destroy']);
     Route::get('/my/vendors/favorites',        [\App\Http\Controllers\VendorFavoritesController::class, 'index']);    
     Route::post('/account/change-password', [AccountController::class, 'changePassword']);
+    Route::get('/waitlists/mine', [\App\Http\Controllers\WaitlistController::class, 'mine']);
+    Route::delete('/waitlists/{entry}', [\App\Http\Controllers\WaitlistController::class, 'destroyMine']);
+
 
 });
 
@@ -164,6 +170,19 @@ Route::middleware('auth:sanctum')->group(function () {
 
  
 });
+
+Route::middleware('auth:sanctum')->group(function () {
+    // In-app notifications
+    Route::get('/notifications', [NotificationsController::class, 'index']);
+    Route::patch('/notifications/{notification}/read', [NotificationsController::class, 'markRead']);
+    Route::patch('/notifications/read-all', [NotificationsController::class, 'markAllRead']);
+    Route::delete('/notifications/{notification}', [NotificationsController::class, 'destroy']);
+
+    // Preferences
+    Route::get('/notification-preferences', [NotificationsController::class, 'getPreferences']);
+    Route::put('/notification-preferences', [NotificationsController::class, 'updatePreferences']);
+});
+
 
 // ---------------------------------------------------------------------
 // Debug echo (only when APP_DEBUG=true)

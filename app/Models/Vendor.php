@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class Vendor extends Model
 {
@@ -25,7 +26,17 @@ class Vendor extends Model
         'active' => 'bool',
     ];
 
-    // --- Relationships -------------------------------------------------------
+    /**
+     * Ensure these computed attributes are included in arrays/JSON.
+     */
+    protected $appends = [
+        'banner_url',
+        'photo_url',
+    ];
+
+    // ──────────────────────────────────
+    // Relationships
+    // ──────────────────────────────────
 
     public function users()
     {
@@ -48,7 +59,9 @@ class Vendor extends Model
         return $this->belongsToMany(User::class, 'vendor_favorites')->withTimestamps();
     }
 
-    // --- Scopes --------------------------------------------------------------
+    // ──────────────────────────────────
+    // Scopes
+    // ──────────────────────────────────
 
     /** Only active vendors. */
     public function scopeActive($q)
@@ -93,7 +106,7 @@ class Vendor extends Model
         // select vendors.* plus computed distance
         $q->addSelect('vendors.*')
           ->addSelect(DB::raw($expr . ' as distance_miles'))
-          // add bindings for the raw expression
+          // add bindings for the raw expression (keep existing first)
           ->setBindings(array_merge($q->getBindings(), [$lat, $lng, $lat]))
           ->having('distance_miles', '<=', $radiusMiles)
           ->groupBy('vendors.id')
@@ -102,21 +115,28 @@ class Vendor extends Model
         return $q;
     }
 
-    // --- Serialization helpers ----------------------------------------------
+    // ──────────────────────────────────
+    // Accessors (appended)
+    // ──────────────────────────────────
 
-    /** Always include banner_url/photo_url with a default fallback. */
-    public function toArray()
+    /**
+     * Absolute URL to the vendor photo (falls back to default).
+     * e.g. https://fmreserve.com/storage/… or /images/vendor-photo-default.jpg
+     */
+    public function getPhotoUrlAttribute(): string
     {
-        $arr = parent::toArray();
-
-        $arr['banner_url'] = $this->banner_path
-            ? asset('storage/' . $this->banner_path)
-            : asset('images/vendor-banner-default.jpg');
-
-        $arr['photo_url'] = $this->photo_path
-            ? asset('storage/' . $this->photo_path)
+        return $this->photo_path
+            ? url(Storage::url($this->photo_path))
             : asset('images/vendor-photo-default.jpg');
+    }
 
-        return $arr;
+    /**
+     * Absolute URL to the vendor banner (falls back to default).
+     */
+    public function getBannerUrlAttribute(): string
+    {
+        return $this->banner_path
+            ? url(Storage::url($this->banner_path))
+            : asset('images/vendor-banner-default.jpg');
     }
 }

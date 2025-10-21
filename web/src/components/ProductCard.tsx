@@ -15,11 +15,11 @@ export type Product = {
   vendor?: { id: number; name: string };
   variants?: ProductVariant[];
   image_url?: string | null;
-  active?: boolean;            // backend uses `active`
-  is_active?: boolean;         // tolerate older shape
+  active?: boolean;                 // backend uses `active`
+  is_active?: boolean;              // tolerate older shape
   any_available?: number | boolean; // 0/1 or boolean
   allow_waitlist?: boolean;
-  available_qty?: number | string;  // <-- accept string or number
+  available_qty?: number | string;  // accept string or number
 };
 
 type Props = {
@@ -29,6 +29,9 @@ type Props = {
   actions?: React.ReactNode;
   showAvailability?: boolean;
   allowWaitlist?: boolean;
+
+  /** NEW: if present, show waitlist status on the card */
+  waitlistInfo?: { position: number; total: number };
 };
 
 function centsToDollars(c?: number) {
@@ -41,6 +44,7 @@ export default function ProductCard({
   to,
   state,
   actions,
+  waitlistInfo,
 }: Props) {
   const cheapest = product.variants?.length
     ? [...product.variants].sort(
@@ -83,6 +87,13 @@ export default function ProductCard({
       </div>
     );
 
+  const showWaitBadge =
+    !!waitlistInfo &&
+    Number.isFinite(waitlistInfo.position) &&
+    Number.isFinite(waitlistInfo.total) &&
+    waitlistInfo.position > 0 &&
+    waitlistInfo.total > 0;
+
   return (
     <CardShell>
       <div className="flex items-start justify-between gap-3">
@@ -99,14 +110,17 @@ export default function ProductCard({
             />
           )}
           <div>
-            <h3 className="text-base font-semibold text-base-content">
-              {product.name}
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-base font-semibold text-base-content">
+                {product.name}
+              </h3>
               {!isActive && (
-                <span className="ml-2 text-xs rounded bg-base-200 px-1.5 py-0.5 align-middle text-base-content/80">
+                <span className="text-xs rounded bg-base-200 px-1.5 py-0.5 align-middle text-base-content/80">
                   inactive
                 </span>
               )}
-            </h3>
+              
+            </div>
             {product.vendor && (
               <div className="text-xs text-base-content/80 mt-0.5">
                 {product.vendor.name}
@@ -140,22 +154,27 @@ export default function ProductCard({
             </div>
           ) : (
             <div className="mt-2 text-xs text-warning">
-              Currently out of stock
+              {/* If user is on the waitlist for this product, show status;
+                  else show the join waitlist affordance */}
               {product.allow_waitlist ? (
-                <>
-                  {" — "}
-                  {isLink ? (
-                    <span className="underline">Join waitlist</span>
-                  ) : (
+                showWaitBadge ? (
+                  <>On waitlist — {waitlistInfo!.position} of {waitlistInfo!.total}</>
+                ) : isLink ? (
+                  <>Currently out of stock — <span className="underline">Join waitlist</span></>
+                ) : (
+                  <>
+                    Currently out of stock —{" "}
                     <Link
                       to={`/products/${product.id}?waitlist=1`}
                       className="underline"
                     >
                       Join waitlist
                     </Link>
-                  )}
-                </>
-              ) : null}
+                  </>
+                )
+              ) : (
+                <>Currently out of stock</>
+              )}
             </div>
           )}
         </>

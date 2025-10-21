@@ -2,7 +2,7 @@
 :root { --primary: #ea9a49; }                /* default (fallback) */
 
 /* match the values you want per theme */
-:root[data-theme="farmers"]   { --primary: #ea9a49; } /* your orange */
+:root[data-theme="farmers"]   { --primary: #f59e0b; } /* your orange */
 :root[data-theme="light"]     { --primary: #3b82f6; }
 :root[data-theme="dark"]      { --primary: #60a5fa; }
 :root[data-theme="corporate"] { --primary: #4b6bfb; }

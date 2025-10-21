@@ -5,6 +5,7 @@ import api, { getMyFavoriteVendors, favoriteVendor, unfavoriteVendor } from "../
 import ProductCard from "../components/ProductCard";
 import type { Product } from "../components/ProductCard";
 import Lightbox from "../components/Lightbox";
+import { Share2 } from "lucide-react";
 
 type Location = {
   id: number;
@@ -69,6 +70,8 @@ export default function VendorDetail() {
   const [authPrompt, setAuthPrompt] = useState(false);
   const nextUrl = `${window.location.pathname}${window.location.search}`; 
   const FAVORITES_VERSION_KEY = "__favorites_version";
+
+  const [copied, setCopied] = useState(false);
 
   function fetchVendor() {
     return api.get(`/vendors/${id}`, { params: { include_inactive: 1 } }).then(r => r.data as Vendor);
@@ -159,7 +162,30 @@ export default function VendorDetail() {
     } finally {
       setSaving(false);
     }
-  }
+  }  
+    async function copyShareLink() {
+      if (!vendor) return;
+      const url = `${window.location.origin}/vendors/${vendor.id}`;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(url);
+        } else {
+          // Fallback for older browsers
+          const input = document.createElement("input");
+          input.value = url;
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand("copy");
+          document.body.removeChild(input);
+        }
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1300);
+      } catch {
+        // Optional: show toast if you prefer
+        // setToast("Couldn't copy link");
+        window.open(url, "_blank");
+      }
+    }
 
   // --- Favorites (heart) ---
     async function toggleFavorite() {
@@ -338,17 +364,39 @@ export default function VendorDetail() {
               </div>
             </div>
 
-            {/* Heart / Follow */}
-            <button
-              aria-label={(vendor.is_favorite ? "Unfollow " : "Follow ") + vendor.name}
-              onClick={toggleFavorite}
-              className="select-none rounded-full px-3 py-1 text-sm leading-none hover:bg-base-200"
-              title={vendor.is_favorite ? "Unfollow" : "Follow"}
-            >
-              <span className={`text-lg align-middle ${vendor.is_favorite ? "text-[var(--primary)]" : "text-neutral-500"}`}>
-                {vendor.is_favorite ? "♥" : "♡"}
-              </span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={copyShareLink}
+                className="rounded-full p-1.5 border border-base-300 bg-base-100 hover:bg-base-200"
+                aria-label="Copy vendor link"
+                title="Copy link to clipboard"
+              >
+                <Share2 className="w-4 h-4 text-base-content/70" />
+              </button>
+
+              <button
+                type="button"
+                aria-label={(vendor.is_favorite ? "Unfollow " : "Follow ") + vendor.name}
+                onClick={toggleFavorite}
+                className="select-none rounded-full px-3 py-1 text-sm leading-none hover:bg-base-200"
+                title={vendor.is_favorite ? "Unfollow" : "Follow"}
+              >
+                <span
+                  className={`text-lg align-middle ${
+                    vendor.is_favorite ? "text-[var(--primary)]" : "text-neutral-500"
+                  }`}
+                >
+                  {vendor.is_favorite ? "♥" : "♡"}
+                </span>
+              </button>
+
+              {copied && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-base-200 text-base-content/80 select-none">
+                  Copied!
+                </span>
+              )}
+            </div>
           </div>
 
          
