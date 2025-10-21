@@ -6,6 +6,9 @@ import ProductCard from "../components/ProductCard";
 import type { Product } from "../components/ProductCard";
 import Lightbox from "../components/Lightbox";
 import { Share2 } from "lucide-react";
+import { ensureJpeg } from "../lib/convertHeic";
+import FilePicker from "../components/FilePicker";
+import { useRef } from "react";
 
 type Location = {
   id: number;
@@ -48,12 +51,21 @@ export default function VendorDetail() {
   const [name, setName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
-  const [bannerFile, setBannerFile] = useState<File | null>(null);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [description, setDescription] = useState("");
   const [flyerText, setFlyerText] = useState("");
+  // image replace (banner/photo)
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [bannerNewFile, setBannerNewFile] = useState<File | null>(null);
+  const [bannerWarn, setBannerWarn] = useState<string | null>(null);
+
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoNewFile, setPhotoNewFile] = useState<File | null>(null);
+  const [photoWarn, setPhotoWarn] = useState<string | null>(null);
+
+  // keep track of object URLs to revoke on unmount
+  const objectUrls = useRef<string[]>([]);
 
   // address fields (Primary location)
   const [address1, setAddress1] = useState("");
@@ -113,6 +125,13 @@ export default function VendorDetail() {
     return () => { cancelled = true; };
   }, [id]);
 
+  useEffect(() => {
+    return () => {
+      objectUrls.current.forEach((u) => URL.revokeObjectURL(u));
+      objectUrls.current = [];
+    };
+  }, []);
+
   async function saveEdits() {
     if (!vendor) return;
     setSaving(true);
@@ -134,11 +153,11 @@ export default function VendorDetail() {
       // 1) Save vendor fields
       await api.patch(`/vendors/${vendor.id}`, patchBody);
 
-      // 2) Optional images upload
-      if (bannerFile || photoFile) {
+      // 2) Optional images upload (already JPEG-normalized)
+      if (bannerNewFile || photoNewFile) {
         const form = new FormData();
-        if (bannerFile) form.append("banner", bannerFile);
-        if (photoFile) form.append("photo", photoFile);
+        if (bannerNewFile) form.append("banner", bannerNewFile);
+        if (photoNewFile)  form.append("photo",  photoNewFile);
         await api.post(`/vendors/${vendor.id}/assets`, form, {
           headers: { "Content-Type": "multipart/form-data" },
         });
@@ -152,8 +171,12 @@ export default function VendorDetail() {
 
       // tidy up UI
       setOpenEdit(false);
-      setBannerFile(null);
-      setPhotoFile(null);
+      setBannerNewFile(null);
+      setPhotoNewFile(null);
+      setBannerPreview(null);
+      setPhotoPreview(null);
+      setBannerWarn(null);
+      setPhotoWarn(null);
       setToast("Saved!");
       setTimeout(() => setToast(null), 1200);
     } catch (e: any) {
@@ -186,6 +209,42 @@ export default function VendorDetail() {
         window.open(url, "_blank");
       }
     }
+
+    async function onPickBanner(f?: File | null) {
+      setBannerWarn(null);
+      setBannerNewFile(null);
+      setBannerPreview(null);
+      if (!f) return;
+      const { file, previewUrl, warning } = await ensureJpeg(f, {
+        quality: 0.9,
+        maxWidth: 3000,
+        maxHeight: 3000,
+        maxSizeMB: 8,
+      });
+      objectUrls.current.push(previewUrl);
+      setBannerNewFile(file);
+      setBannerPreview(previewUrl);
+      setBannerWarn(warning || null);
+    }
+
+    async function onPickPhoto(f?: File | null) {
+      setPhotoWarn(null);
+      setPhotoNewFile(null);
+      setPhotoPreview(null);
+      if (!f) return;
+      const { file, previewUrl, warning } = await ensureJpeg(f, {
+        quality: 0.9,
+        maxWidth: 3000,
+        maxHeight: 3000,
+        maxSizeMB: 8,
+      });
+      objectUrls.current.push(previewUrl);
+      setPhotoNewFile(file);
+      setPhotoPreview(previewUrl);
+      setPhotoWarn(warning || null);
+    }    
+
+
 
   // --- Favorites (heart) ---
     async function toggleFavorite() {
@@ -529,20 +588,24 @@ export default function VendorDetail() {
           {/* Images */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-base-content/80 mb-1">Banner image</label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)}
-              />
+            <FilePicker
+              label="Banner image"
+              accept="image/*,.heic,.heif"
+              onPick={(f) => { void onPickBanner(f); }}   // 👈 wrap
+              previewUrl={bannerPreview ?? (vendor.banner_url || null)}
+              fileName={bannerNewFile?.name ?? null}
+            />
+              {bannerWarn && <div className="text-red-600 text-xs mt-1">{bannerWarn}</div>}
             </div>
             <div>
-              <label className="block text-xs text-base-content/80 mb-1">Vendor photo</label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
-              />
+            <FilePicker
+              label="Vendor photo"
+              accept="image/*,.heic,.heif"
+              onPick={(f) => { void onPickPhoto(f); }}    // 👈 wrap
+              previewUrl={photoPreview ?? (vendor.photo_url || null)}
+              fileName={photoNewFile?.name ?? null}
+            />
+              {photoWarn && <div className="text-red-600 text-xs mt-1">{photoWarn}</div>}
             </div>
           </div>
 
