@@ -17,8 +17,7 @@ die() { printf "\n[error] %s\n" "$*" >&2; exit 1; }
 # Make rsync a bit more resilient on shared hosts (keepalive)
 export RSYNC_RSH="ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=6"
 
-# Common rsync opts for robustness + nice progress:
-# Use only options supported by older rsync versions (BlueHost often runs <3.1)
+# Common rsync opts for robustness + nice progress (compatible with older rsync)
 RSYNC_BASE_OPTS=(-az --human-readable --delete-after --partial --inplace --stats --progress)
 
 rsync_with_retry() {
@@ -119,10 +118,20 @@ ssh -T "$HOST_ALIAS" bash <<'EOF'
   APP_DIR="/home4/fbwkscom/apps/fmsub-backend"
   cd "$APP_DIR"
 
-  # Ensure composer is callable
+  # ---- Composer path & cache ----
+  # Try system composer first, otherwise fall back to common shared-host alias.
   if ! command -v composer >/dev/null 2>&1; then
-    alias composer="/usr/local/bin/php $HOME/bin/composer"
+    # Typical cPanel path using php wrapper
+    if [ -x "$HOME/bin/composer" ]; then
+      alias composer="/usr/local/bin/php $HOME/bin/composer"
+    elif [ -x "/opt/cpanel/composer/bin/composer" ]; then
+      alias composer="/opt/cpanel/composer/bin/composer"
+    else
+      echo "[error] Composer not found on server PATH" >&2
+      exit 1
+    fi
   fi
+  export COMPOSER_CACHE_DIR="$HOME/.composer/cache"
 
   echo "==> Remove stale Laravel caches (avoid leaking local paths)"
   rm -f bootstrap/cache/config.php \
@@ -140,8 +149,11 @@ ssh -T "$HOST_ALIAS" bash <<'EOF'
   fi
   php artisan storage:link || true
 
-  echo "==> Composer install"
-  composer install --no-dev --optimize-autoloader
+  echo "==> Composer install (idempotent; reads composer.lock)"
+  composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+
+  echo "==> Sanity: check Stripe PHP SDK is autoloadable"
+  php -r 'require "vendor/autoload.php"; echo class_exists("\Stripe\StripeClient") ? "Stripe OK\n" : "Stripe MISSING\n";'
 
   echo "==> Clear caches (to be safe)"
   LOG_CHANNEL=stderr php artisan optimize:clear || true
@@ -151,12 +163,8 @@ ssh -T "$HOST_ALIAS" bash <<'EOF'
 
   echo "==> Rebuild caches"
   LOG_CHANNEL=stderr php artisan config:cache
-  LOG_CHANNEL=stderr php artisan route:cache
+  LOG_CHANNEL=stderr php artisan route:cache || true   # tolerate if routes contain closures
   php artisan view:cache
-
-  echo "==> Sanity: environment values seen by PHP"
-  php -r 'echo "APP_URL=".($_ENV["APP_URL"]??getenv("APP_URL")??"").PHP_EOL;'
-  php -r 'echo "APP_FRONTEND_URL=".($_ENV["APP_FRONTEND_URL"]??getenv("APP_FRONTEND_URL")??"").PHP_EOL;'
 
   echo "==> Health checks (API)"
   curl -sfI "https://fmsub.fbwks.com/api/ping" | head -n 1 || true
@@ -167,7 +175,6 @@ ssh -T "$HOST_ALIAS" bash <<'EOF'
   curl -sfI "https://fmsub.fbwks.com/api/vendors/1/flyer.pdf" | head -n 1 || true
 
   echo "==> Health checks (SPA)"
-  # NOTE: subdomain docroot is /, not /fmsubapp/
   curl -sfI "https://fmsubapp.fbwks.com/" | head -n 1 || true
   curl -sfI "https://fmsubapp.fbwks.com/index.html" | head -n 1 || true
 
