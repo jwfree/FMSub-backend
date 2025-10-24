@@ -18,11 +18,15 @@ class Product extends Model
         'image_path',   // stored on public disk
         'active',       // boolean
         'allow_waitlist',
+        'subscription_options',
+
     ];
 
     protected $casts = [
         'active' => 'boolean',
         'allow_waitlist' => 'boolean',
+        'subscription_options' => 'array',
+
     ];
 
     protected $appends = [

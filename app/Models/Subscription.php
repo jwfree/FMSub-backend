@@ -24,7 +24,7 @@ class Subscription extends Model
     protected $casts = [
         'start_date' => 'date',
         'quantity'   => 'integer', 
-
+        'end_date'   => 'date',
     ];
 
     // ----- Relationships -----

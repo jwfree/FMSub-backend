@@ -2,325 +2,332 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Subscription;
+use App\Models\Product;
 use App\Models\ProductVariant;
-use App\Models\Vendor;
+use App\Models\Subscription;
+use App\Models\Notification;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\Rule;
-use App\Services\NotificationService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class SubscriptionsController extends Controller
 {
-    // GET /api/subscriptions/mine
-    public function mine(Request $request)
+    /**
+     * Optional helper/plans — kept simple. Adjust to your pricing if needed.
+     */
+    public function plans(Product $product)
     {
-        $user = Auth::user();
-
-        $customer = $user->customer; // assumes User hasOne Customer
-        if (! $customer) {
-            return response()->json([]);
-        }
-
-        $subs = Subscription::query()
-            ->where('customer_id', $customer->id)
-            ->with(['product', 'productVariant', 'vendor'])
-            ->orderByDesc('id')
-            ->get();
-
-        return response()->json($subs);
-    }
-
-    // POST /api/subscriptions
-    // body: { product_variant_id, start_date (Y-m-d), frequency, notes?, quantity? }
-    public function store(Request $request)
-    {
-        $user = Auth::user();
-
-        $data = $request->validate([
-            'product_variant_id' => ['required', 'integer', 'exists:product_variants,id'],
-            'start_date'         => ['required', 'date'],
-            'frequency'          => ['required', Rule::in(['weekly','biweekly','monthly'])],
-            'notes'              => ['nullable', 'string', 'max:1000'],
-            'quantity'           => ['nullable', 'integer', 'min:1'],
-        ]);
-
-        $customer = $user->customer;
-        if (! $customer) {
-            return response()->json(['message' => 'No customer profile found.'], 422);
-        }
-
-        $variant = ProductVariant::with('product.vendor')->findOrFail($data['product_variant_id']);
-        $product = $variant->product;
-        $vendor  = $product->vendor;
-
-        $sub = Subscription::create([
-            'customer_id'        => $customer->id,
-            'vendor_id'          => $vendor->id,
-            'product_id'         => $product->id,
-            'product_variant_id' => $variant->id,
-            'status'             => 'active',
-            'start_date'         => $data['start_date'],
-            'frequency'          => $data['frequency'],
-            'notes'              => $data['notes'] ?? null,
-            'quantity'           => $request->integer('quantity', 1),
-        ]);
-
-        // CUSTOMER notification
-        app(NotificationService::class)->send(
-            recipientId: $user->id,
-            type: 'subscription.created',
-            title: 'Subscription confirmed',
-            body: sprintf("You're subscribed to %s (%s).", $product->name, $data['frequency']),
-            data: [
-                'subscription_id'    => $sub->id,
-                'product_id'         => $product->id,
-                'product_variant_id' => $variant->id,
-                'frequency'          => $data['frequency'],
-                'quantity'           => $request->integer('quantity', 1),
-                'start_date'         => $data['start_date'],
-            ],
-            actorId: $user->id
-        );
-
-        // VENDOR notification(s)
-        $this->notifyVendor(
-            vendor: $vendor,
-            type: 'vendor.subscription.created',
-            title: 'New subscription',
-            body: sprintf(
-                '%s subscribed to %s%s (%s).',
-                $this->displayCustomerName($user),
-                $product->name,
-                $variant->name ? ' — ' . $variant->name : '',
-                $data['frequency']
-            ),
-            data: [
-                'subscription_id'    => $sub->id,
-                'customer_id'        => $customer->id,
-                'product_id'         => $product->id,
-                'product_variant_id' => $variant->id,
-                'frequency'          => $data['frequency'],
-                'quantity'           => $request->integer('quantity', 1),
-                'start_date'         => $data['start_date'],
-            ],
-            actorId: $user->id
-        );
-
-        return response()->json($sub->load(['product', 'productVariant', 'vendor']), 201);
-    }
-
-    // POST /api/subscriptions/{subscription}/pause
-    public function pause(Subscription $subscription)
-    {
-        if (! $this->owns($subscription)) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
-        if ($subscription->status !== 'active') {
-            return response()->json(['message' => 'Only active subscriptions can be paused.'], 422);
-        }
-
-        $subscription->update(['status' => 'paused']);
-
-        $user   = Auth::user();
-        $vendor = $subscription->vendor;
-        $product = $subscription->product;
-        $variant = $subscription->productVariant;
-
-        // CUSTOMER notification
-        app(NotificationService::class)->send(
-            recipientId: $user->id,
-            type: 'subscription.paused',
-            title: 'Subscription paused',
-            body: sprintf(
-                'Your subscription for %s%s has been paused.',
-                optional($product)->name ?? 'a product',
-                $variant?->name ? (' — ' . $variant->name) : ''
-            ),
-            data: ['subscription_id' => $subscription->id],
-            actorId: $user->id
-        );
-
-        // VENDOR notification(s)
-        $this->notifyVendor(
-            vendor: $vendor,
-            type: 'vendor.subscription.paused',
-            title: 'Subscription paused',
-            body: sprintf(
-                '%s paused their subscription for %s%s.',
-                $this->displayCustomerName($user),
-                optional($product)->name ?? 'a product',
-                $variant?->name ? (' — ' . $variant->name) : ''
-            ),
-            data: ['subscription_id' => $subscription->id],
-            actorId: $user->id
-        );
-
-        return response()->json($subscription->fresh());
-    }
-
-    // POST /api/subscriptions/{subscription}/resume
-    public function resume(Subscription $subscription)
-    {
-        if (! $this->owns($subscription)) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
-        if ($subscription->status !== 'paused') {
-            return response()->json(['message' => 'Only paused subscriptions can be resumed.'], 422);
-        }
-
-        $subscription->update(['status' => 'active']);
-
-        $user   = Auth::user();
-        $vendor = $subscription->vendor;
-        $product = $subscription->product;
-        $variant = $subscription->productVariant;
-
-        // CUSTOMER notification
-        app(NotificationService::class)->send(
-            recipientId: $user->id,
-            type: 'subscription.resumed',
-            title: 'Subscription resumed',
-            body: sprintf(
-                'Your subscription for %s%s has been resumed.',
-                optional($product)->name ?? 'a product',
-                $variant?->name ? (' — ' . $variant->name) : ''
-            ),
-            data: ['subscription_id' => $subscription->id],
-            actorId: $user->id
-        );
-
-        // VENDOR notification(s)
-        $this->notifyVendor(
-            vendor: $vendor,
-            type: 'vendor.subscription.resumed',
-            title: 'Subscription resumed',
-            body: sprintf(
-                '%s resumed their subscription for %s%s.',
-                $this->displayCustomerName($user),
-                optional($product)->name ?? 'a product',
-                $variant?->name ? (' — ' . $variant->name) : ''
-            ),
-            data: ['subscription_id' => $subscription->id],
-            actorId: $user->id
-        );
-
-        return response()->json($subscription->fresh());
-    }
-
-    // POST /api/subscriptions/{subscription}/cancel
-    public function cancel(Subscription $subscription)
-    {
-        if (! $this->owns($subscription)) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
-        if ($subscription->status === 'canceled') {
-            return response()->json($subscription);
-        }
-
-        $subscription->update(['status' => 'canceled']);
-
-        $user   = Auth::user();
-        $vendor = $subscription->vendor;
-        $product = $subscription->product;
-        $variant = $subscription->productVariant;
-
-        // CUSTOMER notification
-        app(NotificationService::class)->send(
-            recipientId: $user->id,
-            type: 'subscription.canceled',
-            title: 'Subscription canceled',
-            body: sprintf(
-                'Your subscription for %s%s has been canceled.',
-                optional($product)->name ?? 'a product',
-                $variant?->name ? (' — ' . $variant->name) : ''
-            ),
-            data: ['subscription_id' => $subscription->id],
-            actorId: $user->id
-        );
-
-        // VENDOR notification(s)
-        $this->notifyVendor(
-            vendor: $vendor,
-            type: 'vendor.subscription.canceled',
-            title: 'Subscription canceled',
-            body: sprintf(
-                '%s canceled their subscription for %s%s.',
-                $this->displayCustomerName($user),
-                optional($product)->name ?? 'a product',
-                $variant?->name ? (' — ' . $variant->name) : ''
-            ),
-            data: ['subscription_id' => $subscription->id],
-            actorId: $user->id
-        );
-
-        return response()->json($subscription->fresh());
-    }
-
-    protected function owns(Subscription $subscription): bool
-    {
-        $user = Auth::user();
-        $customer = $user->customer;
-        return $customer && $subscription->customer_id === $customer->id;
+        return [
+            ['frequency' => 'every_1_weeks',  'interval' => 'week',  'count' => 1],
+            ['frequency' => 'every_2_weeks',  'interval' => 'week',  'count' => 2],
+            ['frequency' => 'every_1_months', 'interval' => 'month', 'count' => 1],
+        ];
     }
 
     /**
-     * Attempt to resolve vendor recipient user IDs:
-     * - Prefer $vendor->user_id (owner) if present
-     * - Else, if a relation "users()" exists, notify all attached users
-     * - Else, return empty (no vendor notifications)
+     * POST /api/subscriptions
+     * Accepts either:
+     *  - product_variant_id (preferred; we infer product_id)
+     *  - product_id (+ optional product_variant_id)
      */
-    private function vendorRecipientIds(Vendor $vendor): array
+    public function store(Request $req)
     {
-        // Common single-owner column
-        if (isset($vendor->user_id) && $vendor->user_id) {
-            return [(int) $vendor->user_id];
+        $user = $req->user();
+        abort_unless($user, 401, 'Authentication required');
+
+        // Basic field types first
+        $data = $req->validate([
+            'product_variant_id' => ['nullable','integer','exists:product_variants,id'],
+            'product_id'         => ['nullable','integer','exists:products,id'],
+            'frequency'          => ['required','string','max:100'],
+            'quantity'           => ['nullable','integer','min:1'],
+            'notes'              => ['nullable','string','max:2000'],
+            'start_date'         => ['nullable','date'],
+        ]);
+
+        // Must have at least one of product_id or product_variant_id
+        if (empty($data['product_id']) && empty($data['product_variant_id'])) {
+            return response()->json(['message' => 'product_id or product_variant_id is required'], 422);
         }
 
-        // Team/pivot: a users() relation on Vendor (if you have it)
-        if (method_exists($vendor, 'users')) {
-            try {
-                return $vendor->users()->pluck('users.id')->map(fn ($id) => (int) $id)->all();
-            } catch (\Throwable $e) {
-                // Relation not configured as expected — swallow and continue
+        // Resolve product/variant and enforce consistency
+        $variant = null;
+        $product = null;
+
+        if (!empty($data['product_variant_id'])) {
+            $variant = ProductVariant::findOrFail($data['product_variant_id']);
+            $product = Product::findOrFail($variant->product_id);
+        }
+
+        if (!empty($data['product_id'])) {
+            $explicitProduct = Product::findOrFail($data['product_id']);
+            // if we already resolved from variant, ensure they match
+            if ($product && $explicitProduct->id !== $product->id) {
+                return response()->json(['message' => 'Variant does not belong to product'], 422);
+            }
+            if (!$product) {
+                $product = $explicitProduct;
             }
         }
 
-        return [];
-    }
-
-    private function notifyVendor(
-        Vendor $vendor,
-        string $type,
-        string $title,
-        string $body,
-        array $data = [],
-        ?int $actorId = null
-    ): void {
-        $ids = $this->vendorRecipientIds($vendor);
-        if (!$ids) return;
-
-        $svc = app(NotificationService::class);
-        foreach ($ids as $uid) {
-            $svc->send(
-                recipientId: $uid,
-                type: $type,
-                title: $title,
-                body: $body,
-                data: $data,
-                actorId: $actorId
-            );
+        // Normalize & validate frequency string
+        $freq = $this->normalizeFrequency($data['frequency']);
+        if ($freq === null) {
+            return response()->json([
+                'message' => 'Invalid frequency. Use once, daily, weekly, biweekly, monthly, or every_{n}_{days|weeks|months}.'
+            ], 422);
         }
+
+        $sub = Subscription::create([
+            'customer_id'        => $user->id,
+            'vendor_id'          => $product->vendor_id,
+            'product_id'         => $product->id,
+            'product_variant_id' => $variant?->id,
+            'status'             => 'active',
+            'start_date'         => $data['start_date'] ?? now()->toDateString(),
+            'end_date'           => null,
+            'frequency'          => $freq, // store normalized string
+            'notes'              => $data['notes'] ?? null,
+            'quantity'           => $data['quantity'] ?? 1,
+        ]);
+
+        // 🔔 In-app notification to the customer
+        Notification::create([
+            'recipient_id' => $user->id,
+            'actor_id'     => $user->id,
+            'type'         => 'subscription.created',
+            'title'        => 'Subscription confirmed',
+            'body'         => sprintf(
+                "You're subscribed to %s (%s).",
+                $product->name,
+                $this->labelForFrequency($freq)
+            ),
+            'data'         => [
+                'subscription_id'    => $sub->id,
+                'product_id'         => $product->id,
+                'product_variant_id' => $variant?->id,
+                'frequency'          => $freq,
+                'quantity'           => $sub->quantity,
+                'start_date'         => $sub->start_date, // string date
+            ],
+        ]);
+
+        // 🔔 Notify vendor team of new subscription (actor = subscribing customer)
+        foreach ($this->vendorRecipientIds((int) $product->vendor_id) as $rid) {
+            Notification::create([
+                'recipient_id' => $rid,
+                'actor_id'     => $user->id,
+                'type'         => 'subscription.new',
+                'title'        => 'New subscription',
+                'body'         => sprintf(
+                    '%s subscribed to %s%s (qty %d, %s).',
+                    $user->name ?: $user->email,
+                    $product->name,
+                    $variant ? ' — '.$variant->name : '',
+                    (int) ($sub->quantity ?? 1),
+                    $this->labelForFrequency($freq)
+                ),
+                'data'         => [
+                    'subscription_id'    => $sub->id,
+                    'product_id'         => $product->id,
+                    'product_variant_id' => $variant?->id,
+                    'quantity'           => (int) ($sub->quantity ?? 1),
+                    'frequency'          => $freq,
+                    'vendor_id'          => (int) $product->vendor_id,
+                ],
+            ]);
+        }
+
+        return response()->json(
+            $sub->load(['product','productVariant','vendor']),
+            201
+        );
     }
 
-    private function displayCustomerName($user): string
+    /**
+     * GET /api/subscriptions/mine
+     */
+    public function mine(Request $req)
     {
-        // Use User->name if present, else Customer name, else fallback
-        $name = trim((string)($user->name ?? ''));
-        if ($name !== '') return $name;
+        $user = $req->user();
+        abort_unless($user, 401);
 
-        $cust = $user->customer;
-        $cname = $cust ? trim((string)($cust->name ?? '')) : '';
-        return $cname !== '' ? $cname : 'A customer';
+        return Subscription::with(['product.vendor','productVariant'])
+            ->where('customer_id', $user->id)
+            ->latest('id')
+            ->get();
     }
+
+    /**
+     * POST /api/subscriptions/{subscription}/pause
+     */
+    public function pause(Request $req, Subscription $subscription)
+    {
+        $user = $req->user();
+        abort_unless($user, 401);
+        abort_unless($subscription->customer_id === $user->id, 403);
+
+        if ($subscription->status !== 'paused') {
+            $subscription->update(['status' => 'paused']);
+        }
+
+        Notification::create([
+            'recipient_id' => $user->id,
+            'actor_id'     => $user->id,
+            'type'         => 'subscription.paused',
+            'title'        => 'Subscription paused',
+            'body'         => sprintf(
+                'Your subscription for %s has been paused.',
+                optional($subscription->product)->name ?? 'a product'
+            ),
+            'data'         => ['subscription_id' => $subscription->id],
+        ]);
+
+        return $subscription->fresh(['product','productVariant','vendor']);
+    }
+
+    /**
+     * POST /api/subscriptions/{subscription}/resume
+     */
+    public function resume(Request $req, Subscription $subscription)
+    {
+        $user = $req->user();
+        abort_unless($user, 401);
+        abort_unless($subscription->customer_id === $user->id, 403);
+
+        if ($subscription->status !== 'active') {
+            $subscription->update(['status' => 'active']);
+        }
+
+        Notification::create([
+            'recipient_id' => $user->id,
+            'actor_id'     => $user->id,
+            'type'         => 'subscription.resumed',
+            'title'        => 'Subscription resumed',
+            'body'         => sprintf(
+                'Your subscription for %s has been resumed.',
+                optional($subscription->product)->name ?? 'a product'
+            ),
+            'data'         => ['subscription_id' => $subscription->id],
+        ]);
+
+        return $subscription->fresh(['product','productVariant','vendor']);
+    }
+
+    /**
+     * POST /api/subscriptions/{subscription}/cancel
+     */
+    public function cancel(Request $req, Subscription $subscription)
+    {
+        $user = $req->user();
+        abort_unless($user, 401);
+        abort_unless($subscription->customer_id === $user->id, 403);
+
+        // Capture a Carbon instance once
+        $end = now()->startOfDay();
+
+        if ($subscription->status !== 'canceled') {
+            $subscription->update([
+                'status'   => 'canceled',
+                'end_date' => $end->toDateString(), // store as date string (cast-friendly)
+            ]);
+        }
+
+        Notification::create([
+            'recipient_id' => $user->id,
+            'actor_id'     => $user->id,
+            'type'         => 'subscription.canceled',
+            'title'        => 'Subscription canceled',
+            'body'         => sprintf(
+                'Your subscription for %s has been canceled.',
+                optional($subscription->product)->name ?? 'a product'
+            ),
+            'data'         => [
+                'subscription_id' => $subscription->id,
+                'end_date'        => $end->toDateString(), // avoid calling ->toDateString() on a string
+            ],
+        ]);
+
+        return $subscription->fresh(['product','productVariant','vendor']);
+    }
+
+    // -------------------------
+    // Helpers: frequency parse
+    // -------------------------
+
+    /**
+     * Normalize/validate a frequency string.
+     * Returns normalized string or null if invalid.
+     *
+     * Stored forms:
+     *  - once
+     *  - every_{n}_days|weeks|months
+     */
+    private function normalizeFrequency(string $raw): ?string
+    {
+        $f = strtolower(trim($raw));
+
+        // Legacy shortcuts
+        if ($f === 'once')    return 'once';
+        if ($f === 'daily')   return 'every_1_days';
+        if ($f === 'weekly')  return 'every_1_weeks';
+        if ($f === 'biweekly')return 'every_2_weeks';
+        if ($f === 'monthly') return 'every_1_months';
+
+        // Parametric: every_{n}_{unit}
+        if (preg_match('/^every_(\d+)_(days|weeks|months)$/', $f, $m)) {
+            $n = (int) $m[1];
+            $unit = $m[2];
+
+            // Sensible bounds
+            if ($unit === 'days'   && $n >= 1 && $n <= 365) return "every_{$n}_days";
+            if ($unit === 'weeks'  && $n >= 1 && $n <= 52)  return "every_{$n}_weeks";
+            if ($unit === 'months' && $n >= 1 && $n <= 24)  return "every_{$n}_months";
+        }
+
+        return null;
+    }
+
+    /**
+     * Human-readable label for notifications/UI.
+     */
+    private function labelForFrequency(string $normalized): string
+    {
+        if ($normalized === 'once') return 'Once';
+
+        if (preg_match('/^every_(\d+)_(days|weeks|months)$/', $normalized, $m)) {
+            $n = (int) $m[1];
+            $unit = $m[2];
+
+            $unitLabel = match ($unit) {
+                'days'   => $n === 1 ? 'day'   : 'days',
+                'weeks'  => $n === 1 ? 'week'  : 'weeks',
+                'months' => $n === 1 ? 'month' : 'months',
+                default  => $unit,
+            };
+
+            // Friendly aliases
+            if ($unit === 'weeks' && $n === 1) return 'Weekly';
+            if ($unit === 'weeks' && $n === 2) return 'Every 2 weeks';
+            if ($unit === 'months' && $n === 1) return 'Monthly';
+            if ($unit === 'days' && $n === 1) return 'Daily';
+
+            return "Every {$n} {$unitLabel}";
+        }
+
+        return ucfirst($normalized);
+    }
+
+    // Add this helper inside WaitlistController (replace the old vendorRecipientIds if present)
+    private function vendorRecipientIds(int $vendorId): array
+    {
+        // Return all user_ids tied to this vendor (owners/managers/staff)
+        return \DB::table('vendor_users')
+            ->where('vendor_id', $vendorId)
+            ->pluck('user_id')
+            ->unique()
+            ->values()
+            ->all();
+    }
+
 }

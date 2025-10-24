@@ -34,5 +34,11 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    'stripe' => [
+        'secret' => env('STRIPE_SECRET'),
+        'publishable' => env('STRIPE_PUBLISHABLE'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+        'app_fee_bps' => (int) env('STRIPE_APP_FEE_BPS', 0), // e.g. 500 = 5%
+    ],
 
 ];

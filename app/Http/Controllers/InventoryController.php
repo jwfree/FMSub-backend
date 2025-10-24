@@ -128,11 +128,13 @@ class InventoryController extends Controller
             ];
         })->values();
 
-        // -------- Orders list (unchanged) ----------
+        // -------- Orders list ----------
         $orders = \DB::table('deliveries as d')
             ->join('subscriptions as s', 's.id', '=', 'd.subscription_id')
             ->join('product_variants as pv', 'pv.id', '=', 's.product_variant_id')
             ->join('products as p', 'p.id', '=', 's.product_id')
+            ->leftJoin('customers as c', 'c.id', '=', 's.customer_id')
+            ->leftJoin('users as u', 'u.id', '=', 'c.user_id') // ✅ join users for name/email/phone
             ->select(
                 'd.id as delivery_id',
                 'd.scheduled_date',
@@ -142,23 +144,29 @@ class InventoryController extends Controller
                 's.customer_id',
                 'p.name as product_name',
                 'pv.name as variant_name',
-                'pv.id as product_variant_id'
+                'pv.id as product_variant_id',
+                'u.name as customer_name',
+                'u.email as customer_email',
+                'u.phone as customer_phone'
             )
             ->where('s.vendor_id', $vendor->id)
             ->whereDate('d.scheduled_date', $date)
-            ->when($locationId, fn ($q) => $q->where('d.vendor_location_id', $locationId))
-            ->whereIn('d.status', ['scheduled', 'ready', 'picked_up','skipped','missed','refunded'])
+            ->when($locationId, fn($q) => $q->where('d.vendor_location_id', $locationId))
+            ->whereIn('d.status', ['scheduled', 'ready', 'picked_up', 'skipped', 'missed', 'refunded'])
             ->orderBy('p.name')
             ->orderBy('pv.sort_order')
             ->get();
+            // -------- Return payload (same shape the UI expects) ----------
+            return response()->json([
+                'date'        => $date,
+                'location_id' => $locationId,
+                'variants'    => $rows,
+                'orders'      => $orders,
+            ]);
 
-        return response()->json([
-            'date'        => $date,
-            'location_id' => $locationId,
-            'variants'    => $rows,
-            'orders'      => $orders,
-        ]);
     }
+
+
     public function store(Request $req, Vendor $vendor)
     {
         $this->authorize('update', $vendor);

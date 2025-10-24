@@ -5,10 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\ProductVariant;
 use App\Models\Vendor;
 use App\Models\WaitlistEntry;
+use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
-
 
 class WaitlistController extends Controller
 {
@@ -42,6 +43,53 @@ class WaitlistController extends Controller
             'qty'                => max(1, (int)($data['qty'] ?? 1)),
             'note'               => $data['note'] ?? null,
         ]);
+
+        // 🔔 Notifications (customer + vendor team)
+        $actor = $request->user(); // may be null if unauthenticated
+        $vendorId = (int) $product->vendor_id;
+
+        // Customer confirmation (only if logged in so we have a recipient)
+        if ($actor) {
+            Notification::create([
+                'recipient_id' => $actor->id,
+                'actor_id'     => $actor->id,
+                'type'         => 'waitlist.joined',
+                'title'        => 'Added to waitlist',
+                'body'         => sprintf('You joined the waitlist for %s — %s.', $product->name, $variant->name),
+                'data'         => [
+                    'waitlist_id' => $entry->id,
+                    'product_id'  => $product->id,
+                    'variant_id'  => $variant->id,
+                    'qty'         => $entry->qty,
+                    'vendor_id'   => $vendorId,
+                ],
+            ]);
+        }
+
+        // Vendor team notification (actor = customer if available, else null)
+        $vendorRecipientIds = $this->vendorRecipientIds($vendorId);
+        foreach ($vendorRecipientIds as $rid) {
+            Notification::create([
+                'recipient_id' => $rid,
+                'actor_id'     => $actor?->id, // null ok if you allow it, or set to 0
+                'type'         => 'waitlist.new',
+                'title'        => 'New waitlist signup',
+                'body'         => sprintf(
+                    '%s joined the waitlist for %s — %s (qty %d).',
+                    $actor?->name ?: $actor?->email ?: 'A customer',
+                    $product->name,
+                    $variant->name,
+                    $entry->qty
+                ),
+                'data'         => [
+                    'waitlist_id' => $entry->id,
+                    'product_id'  => $product->id,
+                    'variant_id'  => $variant->id,
+                    'qty'         => $entry->qty,
+                    'vendor_id'   => $vendorId,
+                ],
+            ]);
+        }
 
         // Return with customer phone included
         return response()->json(
@@ -130,6 +178,7 @@ class WaitlistController extends Controller
 
         return response()->json(['ok' => true]);
     }
+
     /**
      * GET /api/waitlists/mine
      * Returns current user's waitlist entries with position/total per VARIANT,
@@ -231,7 +280,8 @@ class WaitlistController extends Controller
         })->values();
 
         return response()->json($out);
-    }  
+    }
+
     public function destroyMine(WaitlistEntry $entry)
     {
         $user = request()->user();
@@ -240,5 +290,18 @@ class WaitlistController extends Controller
         }
         $entry->delete();
         return response()->json(['ok' => true]);
-    }  
+    }
+
+// Add this helper inside WaitlistController (replace the old vendorRecipientIds if present)
+private function vendorRecipientIds(int $vendorId): array
+{
+    // Return all user_ids tied to this vendor (owners/managers/staff)
+    return \DB::table('vendor_users')
+        ->where('vendor_id', $vendorId)
+        ->pluck('user_id')
+        ->unique()
+        ->values()
+        ->all();
+}
+
 }

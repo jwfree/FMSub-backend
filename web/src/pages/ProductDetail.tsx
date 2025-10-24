@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import Lightbox from "../components/Lightbox";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { labelFor } from "../lib/subscriptionOptions";
+import type { SubOption, SubOptionValue } from "../lib/subscriptionOptions";
 
 type Variant = {
   id: number;
@@ -21,6 +23,7 @@ type Product = {
   variants: Variant[];
   image_url?: string | null;
   allow_waitlist?: boolean;
+  subscription_options?: SubOption[] | null;
 };
 
 type WaitMineItem = {
@@ -49,8 +52,7 @@ export default function ProductDetail() {
   // subscribe/waitlist form
   const [variantId, setVariantId] = useState<number | "">("");
   const [quantity, setQuantity] = useState<number>(1);
-  const [frequency, setFrequency] =
-    useState<"weekly" | "biweekly" | "monthly">("weekly");
+  const [frequency, setFrequency] = useState<SubOptionValue | "">(""); // typed
   const [startDate, setStartDate] = useState<string>(todayISO());
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -87,6 +89,34 @@ export default function ProductDetail() {
       setVariantId(product.variants[0].id);
     }
   }, [product, variantId]);
+
+  // Default choices if product doesn't specify any
+  const defaultAllowed: SubOption[] = useMemo(
+    () => [
+      { value: "weekly",   label: "Weekly" },
+      { value: "biweekly", label: "Every 2 weeks" },
+      { value: "monthly",  label: "Monthly" },
+    ],
+    []
+  );
+
+  const allowed: SubOption[] = useMemo(
+    () =>
+      (product?.subscription_options && product.subscription_options.length > 0)
+        ? product.subscription_options
+        : defaultAllowed,
+    [product?.subscription_options, defaultAllowed]
+  );
+
+  // Ensure frequency is one of the allowed values whenever product/allowed changes
+  useEffect(() => {
+    if (!product || allowed.length === 0) return;
+    const values = allowed.map(o => o.value as SubOptionValue);
+    if (!values.includes(frequency as SubOptionValue)) {
+      setFrequency(values[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product?.id, allowed]);
 
   // Fetch today's availability
   useEffect(() => {
@@ -145,15 +175,17 @@ export default function ProductDetail() {
     );
   }, [myWaits, product, variantId]);
 
+ 
   // --- Actions ---
   async function onSubscribe() {
     if (!variantId || !startDate || quantity < 1) return;
     setSubmitting(true);
     try {
+      const freqToSend = frequency;
       await api.post("/subscriptions", {
         product_variant_id: Number(variantId),
         start_date: startDate,
-        frequency,
+        frequency: freqToSend,
         quantity,
         notes: notes || undefined,
       });
@@ -171,35 +203,62 @@ export default function ProductDetail() {
     }
   }
 
-async function onJoinWaitlist() {
-  if (!variantId) return;
-  if (!isAuthed) {
-    // require login to personalize waitlist + show position later
-    window.location.href = `/login?next=/products/${id}`;
-    return;
+  async function onSubscribeCash() {
+    if (!variantId || !startDate || quantity < 1) return;
+    setSubmitting(true);
+    try {
+      await api.post("/checkout/subscribe", {
+        product_variant_id: Number(variantId),
+        start_date: startDate,
+        frequency,                // same value you already send to /subscriptions
+        quantity,
+        notes: notes || undefined,
+        payment_method: "cash",   // 👈 key bit
+      });
+      setToast("Subscription created — pay cash at pickup");
+      navigate("/subscriptions");
+    } catch (e: any) {
+      if (e?.response?.status === 401) {
+        window.location.href = `/account?next=/products/${id}`;
+        return;
+      }
+      setToast(e?.response?.data?.message || "Failed to create cash subscription");
+    } finally {
+      setSubmitting(false);
+      setTimeout(() => setToast(null), 2000);
+    }
   }
-  setSubmitting(true);
-  try {
-    // Backend expects: product_variant_id, qty, note
-    await api.post("/waitlist", {
-      product_variant_id: Number(variantId),
-      qty: Math.max(1, quantity),
-      note: notes || undefined,
-    });
-    setToast("Added to waitlist!");
 
-    // refresh my waits to get position/total and flip UI
-    await refreshMyWaits();
+  async function onJoinWaitlist() {
+    if (!variantId) return;
+    if (!isAuthed) {
+      // require login to personalize waitlist + show position later
+      window.location.href = `/login?next=/products/${id}`;
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // Backend expects: product_variant_id, qty, note
+      await api.post("/waitlist", {
+        product_variant_id: Number(variantId),
+        qty: Math.max(1, quantity),
+        note: notes || undefined,
+      });
+      setToast("Added to waitlist!");
 
-    // 🔔 Notify other tabs/components (e.g. Browse) to update waitlist indicators
-    window.dispatchEvent(new CustomEvent("waitlist:changed"));
-  } catch (e: any) {
-    setToast(e?.response?.data?.message || "Failed to join waitlist");
-  } finally {
-    setSubmitting(false);
-    setTimeout(() => setToast(null), 2000);
+      // refresh my waits to get position/total and flip UI
+      await refreshMyWaits();
+
+      // 🔔 Notify other tabs/components (e.g. Browse) to update waitlist indicators
+      window.dispatchEvent(new CustomEvent("waitlist:changed"));
+    } catch (e: any) {
+      setToast(e?.response?.data?.message || "Failed to join waitlist");
+    } finally {
+      setSubmitting(false);
+      setTimeout(() => setToast(null), 2000);
+    }
   }
-}
+
   // --- Derived state ---
   if (loading) return <div className="p-4 text-sm text-base-content/80">Loading…</div>;
   if (err || !product) return <div className="p-4 text-error">{err ?? "Not found"}</div>;
@@ -367,16 +426,19 @@ async function onJoinWaitlist() {
               className="w-full rounded-lg border border-base-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-primary]"
             />
           </div>
+
           <div>
             <div className="text-xs text-base-content/80 mb-1">Frequency</div>
             <select
-              value={frequency}
-              onChange={(e) => setFrequency(e.target.value as any)}
+              value={frequency || ""} // safe initial blank
+              onChange={(e) => setFrequency(e.target.value as SubOptionValue)}
               className="w-full rounded-lg border border-base-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-primary]"
             >
-              <option value="weekly">Weekly</option>
-              <option value="biweekly">Every 2 weeks</option>
-              <option value="monthly">Monthly</option>
+              {allowed.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label ?? labelFor(o.value)}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -393,23 +455,42 @@ async function onJoinWaitlist() {
           />
         </div>
 
-        {/* Main action */}
-        <button
-          onClick={handleClick}
-          disabled={buttonDisabled}
-          className={`btn w-full rounded-lg disabled:opacity-60 ${
-            canWaitlist
-              ? alreadyOnWaitlist
+        {/* Main action(s) */}
+        {canWaitlist ? (
+          // Waitlist mode: keep your single button logic
+          <button
+            onClick={handleClick}
+            disabled={buttonDisabled}
+            className={`btn w-full rounded-lg disabled:opacity-60 ${
+              alreadyOnWaitlist
                 ? "btn-ghost border border-base-300"
                 : "btn-secondary"
-              : outOfStockToday
-              ? "btn-ghost border border-base-300"
-              : "btn-primary"
-          }`}
-          title={alreadyOnWaitlist ? "You’re already on this waitlist" : undefined}
-        >
-          {submitting ? "Processing…" : buttonText}
-        </button>
+            }`}
+            title={alreadyOnWaitlist ? "You’re already on this waitlist" : undefined}
+          >
+            {submitting ? "Processing…" : buttonText}
+          </button>
+        ) : (
+          // Subscribe mode: offer both “Pay now” and “Pay cash at pickup”
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              onClick={onSubscribe}
+              disabled={buttonDisabled}
+              className="btn btn-primary w-full rounded-lg disabled:opacity-60"
+            >
+              {submitting ? "Processing…" : "Subscribe & Pay Now"}
+            </button>
+            <button
+              onClick={onSubscribeCash}
+              disabled={buttonDisabled}
+              className="btn w-full rounded-lg border border-base-300 disabled:opacity-60"
+              title="Reserve now; vendor marks as paid at pickup"
+            >
+              {submitting ? "Processing…" : "Pay with cash at pickup"}
+            </button>
+          </div>
+        )}
+
       </div>
 
       {/* Toast */}

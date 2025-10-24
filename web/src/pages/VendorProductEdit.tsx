@@ -4,6 +4,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
 import { ensureJpeg } from "../lib/convertHeic";
 import FilePicker from "../components/FilePicker";
+import { buildOptionsFromUi } from "../lib/subscriptionOptions";
+import type { SubOption } from "../lib/subscriptionOptions";
 
 
 type Variant = {
@@ -28,6 +30,8 @@ type Product = {
   image_url?: string | null;
   variants: Variant[];
   allow_waitlist?: boolean;
+  subscription_options?: SubOption[] | null; // 👈 add
+
 };
 
 function toDollars(cents?: number | null): string {
@@ -58,6 +62,20 @@ export default function VendorProductEdit() {
   const [unit, setUnit] = useState("");
   const [active, setActive] = useState(true);
   const [allowWaitlist, setAllowWaitlist] = useState(false);
+
+  // subscription choices UI (will seed from existing product, else sensible defaults)
+  const [subOnce, setSubOnce] = useState(false);
+  const [subDaily, setSubDaily] = useState(false);
+  const [subWeekly, setSubWeekly] = useState(true);
+  const [subBiweekly, setSubBiweekly] = useState(true);
+  const [subMonthly, setSubMonthly] = useState(true);
+
+  const [subDaysEnabled, setSubDaysEnabled] = useState(false);
+  const [subDays, setSubDays] = useState<number>(3);
+  const [subWeeksEnabled, setSubWeeksEnabled] = useState(false);
+  const [subWeeks, setSubWeeks] = useState<number>(3);
+  const [subMonthsEnabled, setSubMonthsEnabled] = useState(false);
+  const [subMonths, setSubMonths] = useState<number>(2);  
 
   // For backward-compat first-variant payload during product PATCH
   const [firstVariantDraft, setFirstVariantDraft] = useState<{
@@ -110,6 +128,35 @@ export default function VendorProductEdit() {
           currency: (v?.currency ?? "USD").toUpperCase(),
           active: v?.active ?? true,
         });
+
+        const existing = (p as any).subscription_options as SubOption[] | undefined;
+
+        if (existing && existing.length) {
+          // reset defaults
+          setSubOnce(false); setSubDaily(false); setSubWeekly(false); setSubBiweekly(false); setSubMonthly(false);
+          setSubDaysEnabled(false); setSubWeeksEnabled(false); setSubMonthsEnabled(false);
+
+          for (const opt of existing) {
+            const v = opt.value;
+            if (v === "once") setSubOnce(true);
+            else if (v === "daily") setSubDaily(true);
+            else if (v === "weekly") setSubWeekly(true);
+            else if (v === "biweekly") setSubBiweekly(true);
+            else if (v === "monthly") setSubMonthly(true);
+            else {
+              const m = v.match(/^every_(\d+)_(days|weeks|months)$/);
+              if (m) {
+                const n = Math.max(1, Number(m[1]));
+                const unit = m[2];
+                if (unit === "days")   { setSubDaysEnabled(true); setSubDays(n); }
+                if (unit === "weeks")  { setSubWeeksEnabled(true); setSubWeeks(n); }
+                if (unit === "months") { setSubMonthsEnabled(true); setSubMonths(n); }
+              }
+            }
+          }
+        }
+
+
       })
       .catch((e) => !cancelled && setErr(e?.response?.data?.message || e.message))
       .finally(() => !cancelled && setLoading(false));
@@ -167,6 +214,16 @@ export default function VendorProductEdit() {
       setErr("First variant price must be valid (e.g. 5.00).");
       return;
     }
+    const subOptions = buildOptionsFromUi({
+      once: subOnce,
+      daily: subDaily,
+      weekly: subWeekly,
+      biweekly: subBiweekly,
+      monthly: subMonthly,
+      daysEnabled: subDaysEnabled, days: subDays,
+      weeksEnabled: subWeeksEnabled, weeks: subWeeks,
+      monthsEnabled: subMonthsEnabled, months: subMonths,
+    });
 
     setSaving(true);
     try {
@@ -177,6 +234,7 @@ export default function VendorProductEdit() {
         unit,
         active,
         allow_waitlist: allowWaitlist,
+        subscription_options: subOptions, // 👈 new
         // keep your “first variant for product save” fields if backend expects them here
         variant: {
           id: firstVariantDraft.id ?? undefined,
@@ -441,6 +499,79 @@ export default function VendorProductEdit() {
             </div>
           </div>
         </div>
+
+        <hr />
+
+        <div>
+          <div className="font-medium text-sm mb-2">Subscription options</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={subOnce} onChange={(e)=>setSubOnce(e.target.checked)} />
+              One time
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={subDaily} onChange={(e)=>setSubDaily(e.target.checked)} />
+              Daily
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={subWeekly} onChange={(e)=>setSubWeekly(e.target.checked)} />
+              Weekly
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={subBiweekly} onChange={(e)=>setSubBiweekly(e.target.checked)} />
+              Every 2 weeks
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={subMonthly} onChange={(e)=>setSubMonthly(e.target.checked)} />
+              Monthly
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={subDaysEnabled} onChange={(e)=>setSubDaysEnabled(e.target.checked)} />
+              <span className="text-sm">Every</span>
+              <input
+                type="number"
+                min={1}
+                className="input input-sm w-20"
+                value={subDays}
+                onChange={(e)=>setSubDays(Math.max(1, Math.floor(Number(e.target.value)||1)))}
+              />
+              <span className="text-sm">days</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={subWeeksEnabled} onChange={(e)=>setSubWeeksEnabled(e.target.checked)} />
+              <span className="text-sm">Every</span>
+              <input
+                type="number"
+                min={1}
+                className="input input-sm w-20"
+                value={subWeeks}
+                onChange={(e)=>setSubWeeks(Math.max(1, Math.floor(Number(e.target.value)||1)))}
+              />
+              <span className="text-sm">weeks</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input type="checkbox" checked={subMonthsEnabled} onChange={(e)=>setSubMonthsEnabled(e.target.checked)} />
+              <span className="text-sm">Every</span>
+              <input
+                type="number"
+                min={1}
+                className="input input-sm w-20"
+                value={subMonths}
+                onChange={(e)=>setSubMonths(Math.max(1, Math.floor(Number(e.target.value)||1)))}
+              />
+              <span className="text-sm">months</span>
+            </div>
+          </div>
+          <div className="text-xs text-base-content/70 mt-1">
+            These choices control the frequency dropdown customers see on the product page.
+          </div>
+        </div>
+
 
         <hr />
 

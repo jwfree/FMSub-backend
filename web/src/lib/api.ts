@@ -201,3 +201,14 @@ export function changeMyPassword(payload: {
 }) {
   return api.post('/account/change-password', payload);
 }
+
+// ---------- Stripe (vendor-scoped) ----------
+export async function createStripeConnectLink(vendorId: number): Promise<string> {
+  const r = await api.post<{ url: string }>(`/vendors/${vendorId}/stripe/connect-link`);
+  return r.data.url;
+}
+
+export async function createStripeLoginLink(vendorId: number): Promise<string> {
+  const r = await api.post<{ url: string }>(`/vendors/${vendorId}/stripe/login-link`);
+  return r.data.url;
+}

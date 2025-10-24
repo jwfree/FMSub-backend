@@ -51,6 +51,16 @@ function centsToDollars(c?: number) {
   return `$${(c / 100).toFixed(2)}`;
 }
 
+// Ensure image URLs are absolute (use backend base when relative)
+const API_BASE = (api.defaults as any).baseURL as string;
+function absoluteImg(u?: string | null): string | null {
+  if (!u) return null;
+  if (/^https?:\/\//i.test(u)) return u;                    // already absolute
+  const base = API_BASE.replace(/\/+$/, "");
+  if (u.startsWith("/")) return `${base}${u}`;              // "/storage/.."
+  return `${base}/${u}`;                                    // "storage/.."
+}
+
 /* ========================= Page ========================= */
 
 export default function MySubscriptions() {
@@ -199,7 +209,7 @@ function SubscriptionCard({ sub, inactive }: { sub: Subscription; inactive?: boo
     }
   }
 
-  const img = sub.product?.image_url || null;
+const img = absoluteImg(sub.product?.image_url || null);
 
   return (
     <div className="rounded-xl border bg-base-100 p-4 shadow-sm">
@@ -283,7 +293,8 @@ function SubscriptionCard({ sub, inactive }: { sub: Subscription; inactive?: boo
 function WaitItemCard({ item, onRemoved }: { item: WaitItem; onRemoved: () => void }) {
   const [working, setWorking] = useState(false);
 
-  const img = item.product?.image_url || null;
+  const img = absoluteImg(item.product?.image_url || null);
+
   const price = item.variant?.price_cents ?? undefined;
   const posText =
     item.position > 0 && item.total > 0 ? `${item.position} of ${item.total}` : "";

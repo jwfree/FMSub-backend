@@ -1,7 +1,7 @@
 // web/src/pages/VendorDetail.tsx
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import api, { getMyFavoriteVendors, favoriteVendor, unfavoriteVendor } from "../lib/api";
+import api, { getMyFavoriteVendors, favoriteVendor, unfavoriteVendor,createStripeConnectLink,createStripeLoginLink, } from "../lib/api";
 import ProductCard from "../components/ProductCard";
 import type { Product } from "../components/ProductCard";
 import Lightbox from "../components/Lightbox";
@@ -37,6 +37,8 @@ type Vendor = {
   is_favorite?: boolean;
   products?: Product[];
   locations?: Location[];
+  stripe_account_id?: string | null;   // present if your show() includes it
+  stripe_connected?: boolean | null;   // optional convenience flag
 };
 
 export default function VendorDetail() {
@@ -242,8 +244,30 @@ export default function VendorDetail() {
       setPhotoNewFile(file);
       setPhotoPreview(previewUrl);
       setPhotoWarn(warning || null);
-    }    
+    }   
 
+    async function handleStripeConnect() {
+      if (!vendor) return;
+      try {
+        const url = await createStripeConnectLink(vendor.id);
+        // Full page redirect (recommended by Stripe)
+        window.location.href = url;
+      } catch (e: any) {
+        setToast(e?.response?.data?.message || "Could not start Stripe onboarding");
+        setTimeout(() => setToast(null), 1600);
+      }
+    }
+
+    async function handleStripeDashboard() {
+      if (!vendor) return;
+      try {
+        const url = await createStripeLoginLink(vendor.id);
+        window.open(url, "_blank");
+      } catch (e: any) {
+        setToast(e?.response?.data?.message || "Could not open Stripe dashboard");
+        setTimeout(() => setToast(null), 1600);
+      }
+    }
 
 
   // --- Favorites (heart) ---
@@ -584,6 +608,61 @@ export default function VendorDetail() {
               />
             </div>
           </div>
+
+          {/* Payments (Stripe) */}
+          <div className="rounded-xl border p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Payments (Stripe)</div>
+                <div className="text-xs text-base-content/70 mt-1">
+                  {(() => {
+                    const connected =
+                      !!(vendor.stripe_connected ?? false) ||
+                      !!(vendor.stripe_account_id ?? "");
+                    return connected ? (
+                      <>Connected to Stripe. You can open your Stripe dashboard to manage payouts and verification.</>
+                    ) : (
+                      <>Not connected yet. Connect your Stripe account to accept card payments and receive payouts.</>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const connected =
+                    !!(vendor.stripe_connected ?? false) || !!(vendor.stripe_account_id ?? "");
+                  return connected ? (
+                    <button
+                      type="button"
+                      onClick={handleStripeDashboard}
+                      className="btn btn-sm"
+                      title="Open Stripe dashboard"
+                    >
+                      Open Stripe
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleStripeConnect}
+                      className="btn btn-primary btn-sm"
+                      title="Connect with Stripe"
+                    >
+                      Connect with Stripe
+                    </button>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {!((vendor.stripe_connected ?? false) || !!vendor.stripe_account_id) && (
+              <div className="text-[11px] text-base-content/60 mt-2">
+                We’ll take you to Stripe to create or connect an account. When you finish,
+                you’ll return here automatically.
+              </div>
+            )}
+          </div>
+
 
           {/* Images */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

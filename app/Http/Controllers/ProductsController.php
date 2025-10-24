@@ -168,6 +168,8 @@ class ProductsController extends Controller
                   ->select('id','product_id','name','sku','price_cents','active');
             },
         ]);
+    // If Product::$casts['subscription_options' => 'array'] is set,
+    // the field will be serialized on JSON responses automatically.
 
         return response()->json($product);
     }

@@ -179,7 +179,7 @@ function UserMenu({
                 className="block hover:underline text-sm"
                 onClick={() => setOpen(false)}
               >
-                Inventory
+                Inventory/Fulfillment
               </Link>
               <Link
                 to={`/vendors/${v.id}/products/new`}
@@ -275,8 +275,8 @@ function UserMenu({
   return (
     <>
       <div className="relative" ref={menuRef}>
-      <button
-        className="rounded-xl border border-base-300 p-2 hover:bg-base-200 flex items-center justify-center"
+       <div
+        className="cursor-pointer flex items-center justify-center"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -286,7 +286,7 @@ function UserMenu({
         <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-base-300">
           <UserCircle className="w-4 h-4 text-base-content/80" />
         </span>
-      </button>
+      </div>
 
         {open && (
           <div
@@ -477,7 +477,7 @@ function Header({
 
           {me && !hasVendor && (
             <Link className="text-base-content hover:text-primary" to="/vendor/new">
-              Become a vendor
+              
             </Link>
           )}
 
@@ -502,9 +502,110 @@ function Shell({
   onLogout: () => Promise<void>;
   children: React.ReactNode;
 }) {
+  const location = useLocation();
+  const onBrowse = location.pathname.startsWith("/browse");
+
+  // Derive vendor status without changing the Me type
+  const m = me as any;
+
+  const hasMemberships = Array.isArray(m?.vendor_memberships) && m.vendor_memberships.length > 0;
+  const hasVendors     = Array.isArray(m?.vendors)             && m.vendors.length > 0;
+  const hasVendorIds   = Array.isArray(m?.vendor_ids)          && m.vendor_ids.length > 0;
+
+  // If is_vendor is defined, use it; otherwise fall back to the array checks
+  const isVendor: boolean =
+    (m?.is_vendor !== undefined ? Boolean(m.is_vendor) : (hasMemberships || hasVendors || hasVendorIds));
+
+
   return (
     <div className="min-h-screen flex flex-col bg-base-100 text-base-content">
       <Header me={me} onLogout={onLogout} />
+
+      {/* Optional hero/welcome band shown above Vendors/Products tabs */}
+      {onBrowse && (
+        <div className="bg-base-200/60 border-b border-base-300">
+          <div className="mx-auto max-w-3xl px-4 py-5">
+            {!me ? (
+              /* --- Logged OUT --- */
+              <div className="flex flex-row gap-4 items-start">
+                <img
+                  src="img/hero-welcome-1920.jpg"
+                  alt="Farmers market"
+                  className="w-24 h-16 md:w-44 md:h-32 object-cover rounded-xl border-0 md:border"
+                />
+                <div>
+                  <h2 className="text-lg font-semibold">Welcome to Farmers Market Reserve</h2>
+                  <p className="text-sm text-base-content/70 mt-1">
+                    Pre-reserve fresh, local goods from your favorite vendors. Browse vendors and
+                    products below—no account needed to look around. Create a free account to subscribe
+                    for weekly pickups or one-time orders.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link className="btn btn-sm btn-primary" to="/signup?next=/browse">
+                      Create account
+                    </Link>
+                    <Link className="btn btn-sm" to="/login?next=/browse">
+                      Sign in
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            ) : (
+
+            /* --- Logged IN --- */
+            <div className="flex items-start gap-3 md:gap-4">
+              <picture className="shrink-0">
+                {/* Desktop/tablet gets the large hero; mobile gets the small logo */}
+                <source srcSet="img/hero-welcome-1920.jpg" media="(min-width: 768px)" />
+                <img
+                  src="img/logo-hero-768.png"
+                  alt="Farmers Market Reserve"
+                  className="
+                    w-24 h-24               /* mobile size you wanted: small logo */
+                    md:w-44 md:h-32         /* desktop/tablet: taller hero block */
+                    rounded-xl
+                    border-0 md:border      
+                    object-contain md:object-cover /* no crop on mobile; fill on desktop */
+                  "
+                />
+              </picture>
+
+              <div className="flex-1">
+                {/* Desktop header row: title + button aligned */}
+                <div className="hidden md:flex items-start justify-between gap-4">
+                  <h2 className="text-lg font-semibold m-0">Welcome back!</h2>
+                  {!isVendor && (
+                    <Link className="btn btn-sm btn-primary" to="/vendor/new">
+                      Become a Vendor
+                    </Link>
+                  )}
+                </div>
+
+                {/* Mobile title (button stays below the paragraph on mobile) */}
+                <h2 className="md:hidden text-lg font-semibold m-0">Welcome back!</h2>
+
+                <p className="text-sm text-base-content/70 mt-1">
+                  Jump into the latest offerings below. You can also manage your subscriptions
+                  and notifications from the menu.
+                </p>
+
+                {/* Mobile CTA below text */}
+                {!isVendor && (
+                  <div className="mt-3 md:hidden">
+                    <Link className="btn btn-sm btn-primary" to="/vendor/new">
+                      Become a Vendor
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
+
+
+            )}
+          </div>
+        </div>
+      )}
+
       <main className="flex-1 pb-16 px-4">{children}</main>
       <footer className="bg-base-200 text-base-content text-xs text-center py-3 mt-auto">
         © {new Date().getFullYear()} Farmer’s Market Reserve
@@ -704,6 +805,7 @@ function SignupView({ onSignedUp }: { onSignedUp: (me: Me) => void }) {
 
 export default function App() {
   const { me, loading, logout, setMe } = useAuth();
+  const navigate = useNavigate(); // 👈 add this
 
   if (loading) {
     return (
@@ -718,6 +820,7 @@ export default function App() {
       me={me}
       onLogout={async () => {
         await logout();
+        navigate("/browse", { replace: true }); // 👈 redirect to vendor browse
       }}
     >
       <Routes>
